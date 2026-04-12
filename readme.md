@@ -30,6 +30,9 @@ POST https://www.pathofexile.com/api/trade2/search/poe2/Standard
 # Obtener detalles de listings por ID (máx. 10 por petición)
 GET  https://www.pathofexile.com/api/trade2/fetch/{id1,id2,...}?query={queryId}
 
+# Datos de ítems con traducciones oficiales por idioma
+GET  https://www.pathofexile.com/api/trade2/data/items
+
 # API pública de stash tabs (stream de cambios en tiempo real)
 GET  https://www.pathofexile.com/api/public-stash-tabs?id={next_change_id}
 
@@ -43,66 +46,96 @@ GET  https://poe.ninja/api/data/itemoverview?league=Standard&type={ItemType}
 - **Opción B — OAuth 2.1 (recomendada para app distribuida):** Registro de app en [pathofexile.com/developer](https://www.pathofexile.com/developer). Triplica los rate limits.
 - **Rate limits:** ~12 peticiones / 60 s por IP. El backend debe hacer cola y respetar las cabeceras `X-Rate-Limit-*`.
 
+UPDATE: OAuth requiere solicitud manual a oauth@grindinggear.com. Para uso personal/local el POESESSID es la única opción realista a corto plazo.
+
 ### ¿Captcha / Cloudflare?
 
 El captcha de Cloudflare **solo afecta a la web visual** (`/trade2/`). Los endpoints `/api/trade2/` son REST puro y no están protegidos por Cloudflare — solo por rate limiting. No se necesita scraping ni bypass.
 
 ---
 
-## 🗂️ Stack tecnológico sugerido
+## 🗂️ Stack tecnológico
 
 ```
-frontend/     → Electron + React + Tailwind + Recharts (app desktop local)
+frontend/     → React + Vite + CSS variables (tema oscuro)
 backend/      → Node.js + Express (proxy API + BBDD)
-database/     → SQLite (historial de precios, lista de ítems)
+database/     → SQLite via better-sqlite3 (WAL mode)
 scheduler/    → node-cron (polling periódico)
 ```
 
 ---
 
-## ✅ CHECKLIST DE DESARROLLO COMPLETO
+## ✅ CHECKLIST DE DESARROLLO
 
 ### FASE 0 — Preparación y arquitectura
 
-- [ ] Crear repositorio Git con estructura monorepo (`/frontend`, `/backend`, `/shared`)
-- [ ] Definir fichero `.env` con variables: `POESESSID`, `POLLING_INTERVAL_MS`, `DB_PATH`
-- [ ] Crear `docker-compose.yml` opcional para levantar backend + BBDD en un comando
-- [ ] Documentar la estructura de carpetas en este README
-- [ ] Instalar dependencias base: `express`, `axios`, `better-sqlite3`, `node-cron`, `cors`
+- [X] Crear repositorio Git con estructura monorepo (`/frontend`, `/backend`, `/shared`)
+- [X] Definir fichero `.env` con variables: `POESESSID`, `POLLING_INTERVAL_MS`, `DB_PATH`, `POE_ACCOUNT`
+- [X] Crear `docker-compose.yml` opcional para levantar backend + BBDD en un comando
+- [X] Documentar la estructura de carpetas en este README
+- [X] Instalar dependencias base: `express`, `axios`, `better-sqlite3`, `node-cron`, `cors`
 
 ---
 
 ### FASE 1 — Backend: Capa de acceso a la API de GGG
 
-- [ ] Crear módulo `poeApiClient.js` con cabeceras correctas (`User-Agent`, `Cookie: POESESSID=...`)
-- [ ] Implementar función `searchItems(query)` → POST `/api/trade2/search/poe2/Standard`
-- [ ] Implementar función `fetchListings(ids[], queryId)` → GET `/api/trade2/fetch/{ids}`
-- [ ] Implementar cola de peticiones con respeto de rate limits (cabeceras `X-Rate-Limit-Policy`)
-- [ ] Añadir reintentos con backoff exponencial ante errores 429
-- [ ] Crear endpoint backend `GET /api/cheapest?itemQuery=...` que devuelva el listing más barato
-- [ ] Validar y parsear respuesta: precio, vendedor, divisa, fecha de listing
-- [ ] Tests unitarios del cliente API con datos mockeados
+- [X] Crear módulo `poeApiClient.js` con cabeceras correctas (`User-Agent`, `Cookie: POESESSID=...`)
+- [X] Implementar función `searchItems(query)` → POST `/api/trade2/search/poe2/Standard`
+- [X] Implementar función `fetchListings(ids[], queryId)` → GET `/api/trade2/fetch/{ids}`
+- [X] Implementar cola de peticiones con respeto de rate limits
+- [X] Añadir reintentos con backoff exponencial ante errores 429
+- [X] Implementar función `analyzePrices(query, myAccount)` — separa tus listings de los del mercado
+- [X] Cache por type para no repetir llamadas al comprobar ítems duplicados
 
 ---
 
-### FASE 2 — Módulo 1: Monitor de precio propio
+### FASE 2 — Módulo 1: Monitor de precio propio ✅ COMPLETADO
 
 #### Backend
-- [ ] Endpoint `POST /api/monitor/check` — recibe lista de ítems del usuario con su precio
-- [ ] Para cada ítem, consultar el más barato del mercado vía `poeApiClient`
-- [ ] Comparar precio del usuario vs precio mínimo del mercado
-- [ ] Devolver resultado: `{ item, myPrice, marketMin, isMinPrice: bool, cheaper: [] }`
-- [ ] Endpoint `POST /api/monitor/items` — guardar lista de ítems del usuario en BBDD
-- [ ] Endpoint `GET /api/monitor/items` — recuperar lista guardada
+- [X] Endpoint `GET /api/monitor/check` (SSE) — comprueba precios con barra de progreso en tiempo real
+- [X] Para cada ítem, búsqueda separada de tus listings vs mercado general (2 queries por type)
+- [X] Comparar precio individual de cada listing vs mínimo del mercado
+- [X] Detectar empates con otro vendedor al mismo precio
+- [X] Detectar cuando tienes otro listing tuyo más barato activo
+- [X] Endpoint `POST /api/monitor/items` — guardar ítem en BBDD
+- [X] Endpoint `GET /api/monitor/items` — recuperar lista guardada
+- [X] Endpoint `DELETE /api/monitor/items/:id` — eliminar ítem
+- [X] Endpoint `GET /api/import/listings` (SSE) — importar tus listings activos desde la API de GGG
+- [X] Filtro de importación: solo gemas nivel 21 y 5 sockets, precio en divine
+- [X] Upsert por name+price: evita duplicados al reimportar
+- [X] Queries guardados con `misc_filters` correctos (nivel 21, 5 sockets) y `trade_filters` (divine)
 
 #### Frontend
-- [ ] Pantalla "Mi Lista de Venta" con tabla editable (nombre ítem, precio, divisa)
-- [ ] Botón "Importar desde Trade URL" — parsear URL tipo `.../4mvwJ57ET9` y autorellenar
-- [ ] Botón "Comprobar ahora" — llama a `/api/monitor/check` y muestra resultado
-- [ ] Indicador visual por ítem: ✅ Eres el más barato / ⚠️ Han surgido ofertas más baratas
-- [ ] Mostrar listado de ofertas más baratas detectadas (vendedor, precio, enlace directo)
-- [ ] Polling automático configurable (ej: cada 5 minutos) con notificación visual/sonora
-- [ ] Persistencia local de la lista entre sesiones
+- [X] Pantalla "Mi Lista de Venta" con tabla ordenable (precio, nombre)
+- [X] Botón "Importar mis listings" — importa automáticamente desde la API con barra de progreso
+- [X] Botón "Comprobar ahora" — SSE con barra de progreso por type único
+- [X] Indicador visual por ítem: ✅ Eres el más barato / ⚡ Empate / 🔵 Tienes otro más barato / ⚠️ Hay más baratos
+- [X] Botón "Borrar lista"
+- [X] Persistencia en SQLite entre sesiones
+
+---
+
+### FASE 2B — Mejoras pendientes del Monitor ⬅️ SIGUIENTE
+
+#### Traducción de nombres al español
+- [ ] **Backend:** Verificar que `gemTranslations.js` carga correctamente desde `/api/trade2/data/items` con locale ES
+- [ ] **Backend:** Extender traducción a todos los ítems (no solo gemas) usando el mismo endpoint
+- [ ] **Frontend:** Mostrar `name` traducido en la tabla, mantener `type` en inglés internamente para los queries
+- [ ] **Frontend:** Mostrar nombre original en tooltip al hacer hover si difiere del traducido
+
+#### Polling automático
+- [ ] **Frontend:** Añadir selector de intervalo en la cabecera: Desactivado / 5 min / 10 min / 30 min
+- [ ] **Frontend:** Implementar `setInterval` que llame a `checkPrices()` automáticamente según el intervalo elegido
+- [ ] **Frontend:** Mostrar contador regresivo hasta la próxima comprobación ("Próxima comprobación en 4:32")
+- [ ] **Frontend:** Pausar el polling automático si hay una comprobación manual en curso
+- [ ] **Frontend:** Persistir la configuración del intervalo en `localStorage`
+
+#### Avisos sonoros
+- [ ] **Frontend:** Añadir toggle "🔔 Avisos sonoros" en la cabecera (on/off)
+- [ ] **Frontend:** Reproducir sonido de alerta (`AudioContext` o archivo `.mp3`) cuando se detecte `isMinPrice: false` en una comprobación automática
+- [ ] **Frontend:** Reproducir sonido distinto (o más suave) para empates (`tied: true`)
+- [ ] **Frontend:** No reproducir sonido si la comprobación fue manual (solo en polling automático)
+- [ ] **Frontend:** Mostrar notificación visual tipo toast con el nombre del ítem afectado
 
 ---
 
@@ -148,12 +181,12 @@ scheduler/    → node-cron (polling periódico)
 
 ### FASE 5 — UX / UI
 
-- [ ] Layout general: sidebar izquierdo con los 3 módulos, contenido principal a la derecha
-- [ ] Tema oscuro por defecto (coherente con la estética de PoE2)
-- [ ] Todos los textos y etiquetas en español
-- [ ] Nombres de ítems mostrados en su versión en español (usar campo `name` de la API ES)
+- [X] Layout general: sidebar izquierdo con los 3 módulos, contenido principal a la derecha
+- [X] Tema oscuro por defecto (coherente con la estética de PoE2)
+- [X] Todos los textos y etiquetas en español
+- [ ] Nombres de ítems mostrados en su versión en español (ver Fase 2B)
 - [ ] Toast de notificaciones: alertas de precio, errores de API, confirmaciones
-- [ ] Loading states y manejo de errores visibles al usuario
+- [X] Loading states y barras de progreso visibles al usuario
 - [ ] Favicon e icono de app personalizado
 
 ---
@@ -164,26 +197,31 @@ scheduler/    → node-cron (polling periódico)
 - [ ] Script `npm run dev` que levanta frontend + backend simultáneamente
 - [ ] Script `npm run build` para empaquetar como app Electron standalone
 - [ ] Logs del backend en fichero para debug
-- [ ] README con instrucciones de instalación paso a paso (esta sección 👇)
 - [ ] Gestión de errores de sesión expirada: aviso al usuario para renovar POESESSID
 
 ---
 
-## 🚀 Instalación (borrador)
+## 🚀 Instalación
 
 ```bash
 # 1. Clonar el repositorio
 git clone https://github.com/tu-usuario/poe2-market-watcher
 cd poe2-market-watcher
 
-# 2. Instalar dependencias
+# 2. Instalar dependencias del backend
+cd backend
 npm install
 
 # 3. Configurar variables de entorno
-cp .env.example .env
-# → Editar .env y añadir tu POESESSID
+# Crear archivo .env en la raíz del proyecto (C:\proyectos\POE2\.env)
+POESESSID=tu_session_id_aqui
+POE_ACCOUNT=tu_nombre_de_cuenta#1234
+DB_PATH=./data/poe2market.db
 
-# 4. Arrancar en modo desarrollo
+# 4. Arrancar backend (desde /backend)
+npm run dev
+
+# 5. Arrancar frontend (desde /frontend, en otra terminal)
 npm run dev
 ```
 
@@ -194,13 +232,18 @@ npm run dev
 3. Copia el valor de la cookie `POESESSID`
 4. Pégalo en tu archivo `.env`
 
+### ¿Dónde está la base de datos?
+
+La BD SQLite se guarda en `C:\proyectos\POE2\backend\data\poe2market.db`. El `DB_PATH` en `.env` es relativo a la carpeta desde donde se ejecuta el backend (`/backend`), por lo que debe ser `./data/poe2market.db`.
+
 ---
 
 ## ⚠️ Avisos importantes
 
 - Esta herramienta es **solo para uso personal** y respeta los [términos de la API de GGG](https://www.pathofexile.com/developer/docs)
 - No automatiza pulsaciones de teclas ni interacciones con el juego
-- Respeta los rate limits — no configures intervalos de polling inferiores a 30 segundos
+- Respeta los rate limits — la cola de peticiones tiene un delay de 5s entre llamadas (~12 req/60s)
+- Cada comprobación completa tarda varios minutos dependiendo del número de ítems únicos en la lista
 - El `POESESSID` es equivalente a tu contraseña: **nunca lo compartas**
 
 ---
