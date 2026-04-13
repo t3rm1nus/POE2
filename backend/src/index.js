@@ -13,6 +13,8 @@ const monitorRoutes = require('./routes/monitor');
 app.use('/api/monitor', monitorRoutes);
 const importRoutes = require('./routes/import');
 app.use('/api/import', importRoutes);
+const translationsRouter = require('./routes/translations');
+app.use('/api/translations', translationsRouter);
 // Health check — también lo usaba el compose
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

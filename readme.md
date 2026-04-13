@@ -9,11 +9,11 @@
 
 **PoE2 Market Watcher** es una aplicación web local (frontend + backend) compuesta por tres módulos principales:
 
-| Módulo | Descripción |
-|---|---|
-| 🔔 **Monitor de precio propio** | Compara tu listing contra el más barato del mercado en tiempo real |
-| 📈 **Historial de precios** | Registra cambios de precio de tus ítems favoritos y genera gráficas |
-| 🏆 **Ranking de ítems caros** | Explora los objetos más valiosos del mercado, por categoría |
+| Módulo | Descripción | Estado |
+|---|---|---|
+| 🔔 **Monitor de precio propio** | Compara tu listing contra el más barato del mercado en tiempo real | ✅ Completado |
+| 📈 **Historial de precios** | Registra cambios de precio de tus ítems favoritos y genera gráficas | 🔲 Pendiente |
+| 🏆 **Ranking de ítems caros** | Explora los objetos más valiosos del mercado, por categoría | 🔲 Pendiente |
 
 ---
 
@@ -46,7 +46,7 @@ GET  https://poe.ninja/api/data/itemoverview?league=Standard&type={ItemType}
 - **Opción B — OAuth 2.1 (recomendada para app distribuida):** Registro de app en [pathofexile.com/developer](https://www.pathofexile.com/developer). Triplica los rate limits.
 - **Rate limits:** ~12 peticiones / 60 s por IP. El backend debe hacer cola y respetar las cabeceras `X-Rate-Limit-*`.
 
-UPDATE: OAuth requiere solicitud manual a oauth@grindinggear.com. Para uso personal/local el POESESSID es la única opción realista a corto plazo.
+> **Nota:** OAuth requiere solicitud manual a oauth@grindinggear.com. Para uso personal/local el POESESSID es la única opción realista a corto plazo.
 
 ### ¿Captcha / Cloudflare?
 
@@ -67,7 +67,7 @@ scheduler/    → node-cron (polling periódico)
 
 ## ✅ CHECKLIST DE DESARROLLO
 
-### FASE 0 — Preparación y arquitectura
+### FASE 0 — Preparación y arquitectura ✅ COMPLETADA
 
 - [X] Crear repositorio Git con estructura monorepo (`/frontend`, `/backend`, `/shared`)
 - [X] Definir fichero `.env` con variables: `POESESSID`, `POLLING_INTERVAL_MS`, `DB_PATH`, `POE_ACCOUNT`
@@ -77,7 +77,7 @@ scheduler/    → node-cron (polling periódico)
 
 ---
 
-### FASE 1 — Backend: Capa de acceso a la API de GGG
+### FASE 1 — Backend: Capa de acceso a la API de GGG ✅ COMPLETADA
 
 - [X] Crear módulo `poeApiClient.js` con cabeceras correctas (`User-Agent`, `Cookie: POESESSID=...`)
 - [X] Implementar función `searchItems(query)` → POST `/api/trade2/search/poe2/Standard`
@@ -89,7 +89,7 @@ scheduler/    → node-cron (polling periódico)
 
 ---
 
-### FASE 2 — Módulo 1: Monitor de precio propio ✅ COMPLETADO
+### FASE 2 — Módulo 1: Monitor de precio propio ✅ COMPLETADA
 
 #### Backend
 - [X] Endpoint `GET /api/monitor/check` (SSE) — comprueba precios con barra de progreso en tiempo real
@@ -115,31 +115,33 @@ scheduler/    → node-cron (polling periódico)
 
 ---
 
-### FASE 2B — Mejoras pendientes del Monitor ⬅️ SIGUIENTE
+### FASE 2B — Mejoras del Monitor ✅ COMPLETADA
 
 #### Traducción de nombres al español
-- [ ] **Backend:** Verificar que `gemTranslations.js` carga correctamente desde `/api/trade2/data/items` con locale ES
-- [ ] **Backend:** Extender traducción a todos los ítems (no solo gemas) usando el mismo endpoint
-- [ ] **Frontend:** Mostrar `name` traducido en la tabla, mantener `type` en inglés internamente para los queries
-- [ ] **Frontend:** Mostrar nombre original en tooltip al hacer hover si difiere del traducido
+- [X] **Frontend:** Diccionario hardcodeado `gemTranslations.js` con +200 entradas extraídas de capturas in-game (PS5, versión española oficial) — cubre arco, bastón, ocultismo, primalismo, maza, ballesta, lanza, heraldos y soportes
+- [X] **Frontend:** Nombres mostrados en español en la tabla; el `type` inglés se mantiene internamente para los queries a la API
+- [X] **Frontend:** Tooltip al hacer hover sobre el nombre español muestra el nombre original en inglés cuando difiere
+- [X] **Frontend:** Fallback silencioso al nombre inglés si el ítem no está en el diccionario
 
 #### Polling automático
-- [ ] **Frontend:** Añadir selector de intervalo en la cabecera: Desactivado / 5 min / 10 min / 30 min
-- [ ] **Frontend:** Implementar `setInterval` que llame a `checkPrices()` automáticamente según el intervalo elegido
-- [ ] **Frontend:** Mostrar contador regresivo hasta la próxima comprobación ("Próxima comprobación en 4:32")
-- [ ] **Frontend:** Pausar el polling automático si hay una comprobación manual en curso
-- [ ] **Frontend:** Persistir la configuración del intervalo en `localStorage`
+- [X] **Frontend:** Selector de intervalo en la cabecera: Desactivado / 5 min / 10 min / 30 min
+- [X] **Frontend:** `setInterval` de 1 segundo que gestiona la cuenta atrás y dispara `checkPrices()` automáticamente al llegar a 0
+- [X] **Frontend:** Contador regresivo visible: "⏱ Próxima: 4:32" — cambia a "⏳ Comprobando..." durante el auto-check
+- [X] **Frontend:** El polling no lanza una nueva comprobación si ya hay una en curso
+- [X] **Frontend:** Configuración del intervalo persistida en `localStorage`
 
 #### Avisos sonoros
-- [ ] **Frontend:** Añadir toggle "🔔 Avisos sonoros" en la cabecera (on/off)
-- [ ] **Frontend:** Reproducir sonido de alerta (`AudioContext` o archivo `.mp3`) cuando se detecte `isMinPrice: false` en una comprobación automática
-- [ ] **Frontend:** Reproducir sonido distinto (o más suave) para empates (`tied: true`)
-- [ ] **Frontend:** No reproducir sonido si la comprobación fue manual (solo en polling automático)
-- [ ] **Frontend:** Mostrar notificación visual tipo toast con el nombre del ítem afectado
+- [X] **Frontend:** Toggle 🔔/🔕 en la cabecera para activar/desactivar avisos — estado persistido en `localStorage`
+- [X] **Frontend:** Síntesis de voz nativa (`Web Speech API`) en español — sin dependencias externas, selecciona automáticamente la mejor voz ES disponible en el sistema
+- [X] **Frontend:** Voz completa con nombres de ítems cuando hay precios superados: *"Atención. 2 ítems con precio superado: Disparo de tornado, Campana de tempestad"*
+- [X] **Frontend:** Aviso más corto para empates: *"Empate de precio detectado"*
+- [X] **Frontend:** Los avisos sonoros solo se disparan en comprobaciones automáticas, nunca en manuales
+- [X] **Frontend:** Botón 🔁 para **repetir el último aviso sonoro** — útil si no estabas presente cuando saltó el polling
+- [X] **Frontend:** Toasts visuales en esquina inferior derecha con nombre del ítem y precio de mercado — desaparecen solos a los 5 segundos
 
 ---
 
-### FASE 3 — Módulo 2: Historial y gráficas de precios
+### FASE 3 — Módulo 2: Historial y gráficas de precios ⬅️ SIGUIENTE
 
 #### Backend
 - [ ] Crear tabla SQLite `price_history` (`id`, `item_name`, `item_query`, `price`, `currency`, `timestamp`)
@@ -184,8 +186,8 @@ scheduler/    → node-cron (polling periódico)
 - [X] Layout general: sidebar izquierdo con los 3 módulos, contenido principal a la derecha
 - [X] Tema oscuro por defecto (coherente con la estética de PoE2)
 - [X] Todos los textos y etiquetas en español
-- [ ] Nombres de ítems mostrados en su versión en español (ver Fase 2B)
-- [ ] Toast de notificaciones: alertas de precio, errores de API, confirmaciones
+- [X] Nombres de ítems en español con tooltip al hover (ver Fase 2B)
+- [X] Toast de notificaciones de precio con auto-dismiss a los 5 segundos
 - [X] Loading states y barras de progreso visibles al usuario
 - [ ] Favicon e icono de app personalizado
 
