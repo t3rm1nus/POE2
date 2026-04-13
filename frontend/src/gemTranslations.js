@@ -51,7 +51,7 @@ const GEM_TRANSLATIONS = {
     'Shattering Palm':             'Palma fragmentadora',
     'Thunder Clap':                'Rayo atronador',
     'Snap':                        'Golpe repentino',
-    'Impending Doom':              'Tormenta inminente',
+    'Gathering Storm':             'Tormenta inminente',
   
     // ════════════════════════════════════════════════════════
     // OCULTISMO (Witch / Minions) — confirmado en capturas

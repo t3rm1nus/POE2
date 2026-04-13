@@ -12,8 +12,56 @@
 | Módulo | Descripción | Estado |
 |---|---|---|
 | 🔔 **Monitor de precio propio** | Compara tu listing contra el más barato del mercado en tiempo real | ✅ Completado |
-| 📈 **Historial de precios** | Registra cambios de precio de tus ítems favoritos y genera gráficas | 🔲 Pendiente |
+| 📈 **Mercado de Gemas** | Caché del precio mínimo de todas las gemas Nv.21 / 5⬡ del mercado | ✅ Completado |
 | 🏆 **Ranking de ítems caros** | Explora los objetos más valiosos del mercado, por categoría | 🔲 Pendiente |
+
+---
+
+## 🗂️ Estructura del proyecto
+
+```
+POE2/
+├── backend/
+│   ├── data/
+│   │   ├── poe2market.db
+│   │   ├── poe2market.db-shm
+│   │   └── poe2market.db-wal
+│   ├── node_modules/
+│   ├── src/
+│   │   ├── routes/
+│   │   │   ├── import.js
+│   │   │   └── monitor.js
+│   │   ├── db.js
+│   │   ├── gemTranslations.js
+│   │   ├── index.js
+│   │   ├── poeApiClient.js
+│   │   ├── tracker.js          ← router SSE del mercado de gemas
+│   │   └── translations.js
+│   ├── .dockerignore
+│   ├── Dockerfile
+│   ├── migrate.js
+│   ├── package.json
+│   └── package-lock.json
+│
+├── frontend/
+│   ├── node_modules/
+│   ├── public/
+│   └── src/
+│       ├── assets/
+│       ├── pages/
+│       │   ├── Monitor.jsx     ← Módulo 1: monitor de precio propio
+│       │   ├── Ranking.jsx     ← Módulo 3: ranking (pendiente)
+│       │   └── Tracker.jsx     ← Módulo 2: mercado de gemas
+│       ├── App.css
+│       ├── App.jsx
+│       ├── gemTranslations.js  ← diccionario ES/EN (+200 gemas)
+│       ├── index.css
+│       └── main.jsx
+│
+├── .gitignore
+├── docker-compose.yml
+└── README.md
+```
 
 ---
 
@@ -104,6 +152,7 @@ scheduler/    → node-cron (polling periódico)
 - [X] Filtro de importación: solo gemas nivel 21 y 5 sockets, precio en divine
 - [X] Upsert por name+price: evita duplicados al reimportar
 - [X] Queries guardados con `misc_filters` correctos (nivel 21, 5 sockets) y `trade_filters` (divine)
+- [X] **Al comprobar precios propios, si el resultado supera un precio ya guardado en la caché del Tracker, se actualiza la entrada correspondiente en `gem_market_prices` sin necesidad de relanzar un escaneo completo**
 
 #### Frontend
 - [X] Pantalla "Mi Lista de Venta" con tabla ordenable (precio, nombre)
@@ -141,29 +190,38 @@ scheduler/    → node-cron (polling periódico)
 
 ---
 
-### FASE 3 — Módulo 2: Historial y gráficas de precios ⬅️ SIGUIENTE
+### FASE 3 — Módulo 2: Mercado de Gemas Nv.21 / 5⬡ ✅ COMPLETADA
 
-#### Backend
-- [ ] Crear tabla SQLite `price_history` (`id`, `item_name`, `item_query`, `price`, `currency`, `timestamp`)
-- [ ] Endpoint `POST /api/tracker/items` — añadir ítem a seguimiento con su query de búsqueda
-- [ ] Endpoint `GET /api/tracker/items` — listar ítems en seguimiento
-- [ ] Endpoint `DELETE /api/tracker/items/:id` — eliminar ítem del seguimiento
-- [ ] Endpoint `GET /api/tracker/history/:itemId` — historial de precios de un ítem
-- [ ] Job cron (`node-cron`) que ejecuta comprobación de precio cada N minutos para todos los ítems en seguimiento
-- [ ] Normalización de precios: convertir divine/chaos a chaos equivalente usando poe.ninja
-- [ ] Guardar snapshot de precio mínimo, mediana y precio del usuario (si aplica)
+Este módulo reemplaza el concepto original de "historial con gráficas" por un **escáner de mercado** enfocado en gemas nivel 21 con 5 sockets — el inventario real que se opera.
 
-#### Frontend
-- [ ] Pantalla "Seguimiento de Precios" con lista de ítems monitorizados
-- [ ] Formulario para añadir ítem nuevo: nombre + configurar filtros de búsqueda (tipo, modificadores)
-- [ ] Gráfica de línea (Recharts) por ítem: eje X = tiempo, eje Y = precio en chaos
-- [ ] Selector de rango temporal: últimas 24h / 7 días / 30 días
-- [ ] Indicador de tendencia: 📈 Subiendo / 📉 Bajando / ➡️ Estable (con % de cambio)
-- [ ] Exportar historial a CSV
+#### Backend (`tracker.js`)
+- [X] Lista maestra de ~200 gemas organizadas por categoría (Arco, Bastón, Ocultismo, Primalismo, Maza, Ballesta, Lanza, Heraldo, Soporte)
+- [X] Tabla SQLite `gem_market_prices` con upsert — almacena precio mínimo, vendedor, estado online, listados activos y timestamp de consulta
+- [X] Endpoint `GET /api/tracker/gems` — devuelve caché completa con metadatos (total, obsoletas, pendientes)
+- [X] Endpoint `GET /api/tracker/scan` (SSE) — escanea gemas obsoletas (>24h) o todas con `?force=true`, con progreso en tiempo real
+- [X] Filtro de listings recientes: descarta listings con más de 4 meses de antigüedad
+- [X] Lógica de caché inteligente: solo consulta la API para gemas sin datos o con datos >24h
+- [X] Cancelación limpia del escaneo si el cliente desconecta
+
+#### Frontend (`Tracker.jsx`)
+- [X] Pantalla "📈 Mercado de Gemas Nv.21 / 5⬡" con tabla completa
+- [X] Botón "Actualizar obsoletas" — solo escanea las gemas con caché caducada o sin datos
+- [X] Botón "Forzar escaneo completo" — reconsulta todas las gemas
+- [X] Botón "✕ Detener" — cancela el escaneo en curso
+- [X] Barra de progreso SSE con nombre de gema actual y categoría coloreada
+- [X] Stats rápidos: escaneadas / con precio / sin oferta / obsoletas / pendientes
+- [X] Filtro por categoría, búsqueda por nombre (ES o EN), ordenación por precio/nombre/listados/antigüedad
+- [X] Checkbox "Solo con precio" para ocultar gemas sin oferta activa
+- [X] Columna "Vendedor" con indicador de estado online (punto verde/gris)
+- [X] Columna "Actualizado" con aviso ⚠️ para datos obsoletos
+- [X] Nombres en español con tooltip al hover igual que en el Monitor
+
+#### 🐛 Bug conocido — Herald of Thunder
+- [ ] **`Herald of Thunder` devuelve resultados incorrectos o vacíos de forma intermitente.** La query con `type: 'Herald of Thunder'` a veces no encuentra listings aunque existan en el trade. Posible causa: colisión con el nombre en la API de búsqueda (el término "Thunder" puede interferir con otros ítems). Pendiente de investigar si el problema es el `type` exacto, un filtro adicional necesario, o un comportamiento específico de la API de GGG para este ítem.
 
 ---
 
-### FASE 4 — Módulo 3: Ranking de ítems más caros
+### FASE 4 — Módulo 3: Ranking de ítems más caros 🔲 PENDIENTE
 
 #### Backend
 - [ ] Integrar poe.ninja API (`/api/data/itemoverview`) — sin autenticación necesaria
@@ -246,6 +304,7 @@ La BD SQLite se guarda en `C:\proyectos\POE2\backend\data\poe2market.db`. El `DB
 - No automatiza pulsaciones de teclas ni interacciones con el juego
 - Respeta los rate limits — la cola de peticiones tiene un delay de 5s entre llamadas (~12 req/60s)
 - Cada comprobación completa tarda varios minutos dependiendo del número de ítems únicos en la lista
+- El escaneo completo del Tracker (~200 gemas × 2 llamadas × 5s) puede tardar **~33 minutos**
 - El `POESESSID` es equivalente a tu contraseña: **nunca lo compartas**
 
 ---
