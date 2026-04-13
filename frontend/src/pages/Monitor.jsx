@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import GEM_TRANSLATIONS from '../gemTranslations'
 
 const CURRENCIES = ['chaos', 'divine', 'exalted', 'aug']
@@ -111,12 +111,34 @@ export default function Monitor() {
     }
   }
 
+  // ─── Resultado representativo de un grupo ────────────────────────────────────
+  // Para el estado y los avisos sonoros solo se usa el ítem con my_price más bajo.
+  function getRepresentativeResult(group) {
+    const minItem = group.reduce((a, b) => a.my_price <= b.my_price ? a : b)
+    return (
+      results.find(r => r.item === minItem.name && r.myPrice === minItem.my_price)
+      ?? results.find(r => r.item === minItem.name)
+      ?? null
+    )
+  }
+
   // ─── Lógica de sonido/avisos tras comprobar ──────────────────────────────────
   function procesarResultados(resultados, esAutomatico) {
     if (!esAutomatico || !soundEnabled) return
 
-    const superados = resultados.filter(r => !r.error && !r.isMinPrice)
-    const empates   = resultados.filter(r => !r.error && r.isMinPrice && r.tied)
+    // Un resultado por nombre: el del precio más bajo del grupo
+    const porNombre = new Map()
+    for (const r of resultados) {
+      if (r.error) continue
+      const existing = porNombre.get(r.item)
+      if (!existing || r.myPrice < existing.myPrice) {
+        porNombre.set(r.item, r)
+      }
+    }
+    const representativos = Array.from(porNombre.values())
+
+    const superados = representativos.filter(r => !r.isMinPrice)
+    const empates   = representativos.filter(r => r.isMinPrice && r.tied)
 
     if (superados.length > 0) {
       const nombres = superados.map(r => {
@@ -183,7 +205,6 @@ export default function Monitor() {
 
   // ─── Polling + cuenta atrás ──────────────────────────────────────────────────
   useEffect(() => {
-    // Limpiar timers anteriores
     clearInterval(countdownRef.current)
     clearTimeout(pollTimeoutRef.current)
     setCountdown(0)
@@ -198,7 +219,6 @@ export default function Monitor() {
 
       if (remaining <= 0) {
         remaining = pollInterval
-        // No lanzar si ya hay una comprobación en curso
         if (!loading) {
           checkPrices(true)
         }
@@ -209,11 +229,9 @@ export default function Monitor() {
     countdownRef.current = setInterval(tick, 1000)
 
     return () => clearInterval(countdownRef.current)
-  // Solo relanzar cuando cambia el intervalo configurado
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pollInterval])
 
-  // Pausar la cuenta atrás mientras se comprueba manualmente
   useEffect(() => {
     if (loading && !isAutoCheckRef.current) {
       clearInterval(countdownRef.current)
@@ -311,6 +329,22 @@ export default function Monitor() {
     return 0
   })
 
+  // ─── Agrupar ítems por nombre ─────────────────────────────────────────────────
+  // Un grupo por nombre único. Dentro del grupo los precios están ordenados desc
+  // (mayor a menor), y el último elemento es siempre el más barato → es el
+  // "representativo" para calcular el estado y los avisos sonoros.
+  const groupedItems = useMemo(() => {
+    const map = new Map()
+    for (const item of sortedItems) {
+      if (!map.has(item.name)) map.set(item.name, [])
+      map.get(item.name).push(item)
+    }
+    for (const group of map.values()) {
+      group.sort((a, b) => b.my_price - a.my_price) // desc: 29, 8, 8, 3
+    }
+    return Array.from(map.values())
+  }, [sortedItems])
+
   // ─── Sub-componentes ─────────────────────────────────────────────────────────
   const ProgressBar = ({ progress, total, message }) => (
     <div className="card" style={{ marginBottom: '1rem' }}>
@@ -335,6 +369,21 @@ export default function Monitor() {
       </div>
     </div>
   )
+
+  // ─── Estado del grupo (basado en el ítem de precio mínimo) ───────────────────
+  function renderStatus(group) {
+    const result = getRepresentativeResult(group)
+    if (!result) return <span className="status status--idle">— Sin comprobar</span>
+    if (result.error) return <span className="status status--idle">— Error</span>
+    if (result.isMinPrice) {
+      if (result.tied)
+        return <span className="status status--warn">⚡ Empate — otro al mismo precio ({result.marketMin} {result.marketCurrency})</span>
+      if (result.cheaperOwnExists)
+        return <span className="status status--warn">🔵 Tienes otro listing más barato ({result.myActiveMin} {result.myCurrency})</span>
+      return <span className="status status--ok">✅ Eres el más barato</span>
+    }
+    return <span className="status status--warn">⚠️ Hay ofertas más baratas ({result.marketMin} {result.marketCurrency})</span>
+  }
 
   // ─── Render ──────────────────────────────────────────────────────────────────
   return (
@@ -363,7 +412,6 @@ export default function Monitor() {
       <div className="page-header">
         <h1 className="page-heading">🔔 Monitor de Precio</h1>
 
-        {/* Polling selector */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
             Auto-check:
@@ -379,7 +427,6 @@ export default function Monitor() {
           </select>
         </div>
 
-        {/* Cuenta atrás */}
         {pollInterval > 0 && (
           <span style={{
             fontSize: '0.8rem',
@@ -393,7 +440,6 @@ export default function Monitor() {
           </span>
         )}
 
-        {/* Sonido toggle */}
         <button
           className={`btn ${soundEnabled ? 'btn--primary' : 'btn--secondary'}`}
           onClick={() => setSoundEnabled(s => !s)}
@@ -403,7 +449,6 @@ export default function Monitor() {
           {soundEnabled ? '🔔' : '🔕'}
         </button>
 
-        {/* Repetir último aviso */}
         <button
           className="btn btn--secondary"
           onClick={repetirUltimoAviso}
@@ -455,7 +500,7 @@ export default function Monitor() {
         </form>
       </div>
 
-      {/* ── Tabla ── */}
+      {/* ── Tabla agrupada ── */}
       {items.length > 0 && (
         <div className="card">
           <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -469,15 +514,17 @@ export default function Monitor() {
           <table className="table">
             <thead>
               <tr>
-                <th>Ítem</th><th>Mi precio</th><th>Divisa</th><th>Estado</th><th></th>
+                <th>Ítem</th><th>Mis precios</th><th>Divisa</th><th>Estado</th>
               </tr>
             </thead>
             <tbody>
-              {sortedItems.map(item => {
-                const result = results.find(r => r.item === item.name)
-                const { display, original } = getDisplayName(item)
+              {groupedItems.map(group => {
+                const representative = group[0]
+                const { display, original } = getDisplayName(representative)
+
                 return (
-                  <tr key={item.id}>
+                  <tr key={representative.name}>
+                    {/* Nombre */}
                     <td>
                       <span
                         title={original ? `Nombre original: ${original}` : undefined}
@@ -486,22 +533,47 @@ export default function Monitor() {
                         {display}
                       </span>
                     </td>
-                    <td>{item.my_price}</td>
-                    <td><span className="badge">{item.currency}</span></td>
+
+                    {/* Precios — uno por entrada de BD, con X individual */}
+                    {/* El precio más bajo (último del array) se resalta */}
                     <td>
-                      {result ? (
-                        result.isMinPrice
-                          ? result.tied
-                            ? <span className="status status--warn">⚡ Empate — otro al mismo precio ({result.marketMin} {result.marketCurrency})</span>
-                            : result.cheaperOwnExists
-                              ? <span className="status status--warn">🔵 Tienes otro listing más barato ({result.myActiveMin} {result.myCurrency})</span>
-                              : <span className="status status--ok">✅ Eres el más barato</span>
-                          : <span className="status status--warn">⚠️ Hay ofertas más baratas ({result.marketMin} {result.marketCurrency})</span>
-                      ) : <span className="status status--idle">— Sin comprobar</span>}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
+                        {group.map((item, idx) => {
+                          const isMin = idx === group.length - 1 && group.length > 1
+                          return (
+                            <span
+                              key={item.id}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.2rem',
+                                background: 'var(--bg-elevated)',
+                                border: `1px solid ${isMin ? 'var(--accent)' : 'var(--border)'}`,
+                                borderRadius: '4px',
+                                padding: '0.1rem 0.35rem',
+                                fontSize: '0.85rem',
+                                color: isMin ? 'var(--accent)' : 'inherit',
+                              }}
+                            >
+                              {item.my_price}
+                              <button
+                                className="btn btn--danger btn--sm"
+                                onClick={() => deleteItem(item.id)}
+                                style={{ padding: '0 0.2rem', minWidth: 'unset', fontSize: '0.7rem', lineHeight: 1 }}
+                              >
+                                ✕
+                              </button>
+                            </span>
+                          )
+                        })}
+                      </div>
                     </td>
-                    <td>
-                      <button className="btn btn--danger btn--sm" onClick={() => deleteItem(item.id)}>✕</button>
-                    </td>
+
+                    {/* Divisa (del primer elemento; todos deberían ser iguales) */}
+                    <td><span className="badge">{representative.currency}</span></td>
+
+                    {/* Estado — calculado sobre el precio más bajo del grupo */}
+                    <td>{renderStatus(group)}</td>
                   </tr>
                 )
               })}
