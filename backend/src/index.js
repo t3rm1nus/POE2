@@ -15,12 +15,16 @@ const importRoutes = require('./routes/import');
 app.use('/api/import', importRoutes);
 const translationsRouter = require('./routes/translations');
 app.use('/api/translations', translationsRouter);
+
+const trackerRouter = require('./tracker');
+app.use('/api/tracker', trackerRouter);
+
 // Health check — también lo usaba el compose
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 const poeApi = require('./poeApiClient');
-
+ 
 app.get('/api/cheapest', async (req, res) => {
   try {
     // Query de prueba: buscar Chaos Orb

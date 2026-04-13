@@ -8,6 +8,8 @@ const BASE_URL = 'https://www.pathofexile.com/api/trade2';
 const LEAGUE = 'Standard';
 const CHUNK_SIZE = 10;
 const DELAY_MS = 8000;
+const { GEMS } = require('../tracker');
+const gemCatMap = Object.fromEntries(GEMS.map(g => [g.type, g.cat]));
 
 function getHeaders() {
   return {
@@ -179,6 +181,32 @@ router.get('/listings', async (req, res) => {
         db.prepare('INSERT INTO monitor_items (name, category, query, my_price, currency) VALUES (?, ?, ?, ?, ?)')
           .run(item.name, item.category, JSON.stringify(query), item.my_price, item.currency);
       }
+      if (item.category === 'gem') {
+        const gemType     = item.type;                          // ✅ variable correcta
+        const gemCategory = gemCatMap[gemType] || null;
+        const myPrice     = item.my_price;                      // ✅ variable correcta
+
+        const cached = db.prepare(
+          'SELECT cheapest_price FROM gem_market_prices WHERE gem_type = ?'
+        ).get(gemType);
+        if (!cached || cached.cheapest_price === null || myPrice <= cached.cheapest_price) {
+          db.prepare(`
+            INSERT INTO gem_market_prices
+              (gem_type, category, cheapest_price, currency, seller, seller_online, total_listings, fetched_at)
+            VALUES (?, ?, ?, 'divine', ?, 1, 1, datetime('now'))
+            ON CONFLICT(gem_type) DO UPDATE SET
+              cheapest_price = excluded.cheapest_price,
+              seller         = excluded.seller,
+              seller_online  = 1,
+              fetched_at     = excluded.fetched_at
+          `).run(gemType, gemCategory, myPrice, process.env.POE_ACCOUNT);
+        }
+        
+      }
+      
+      
+
+
     }
 
     send({ status: 'done', items });

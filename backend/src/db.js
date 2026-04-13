@@ -25,6 +25,17 @@ db.exec(`
       currency  TEXT NOT NULL DEFAULT 'chaos',
       created_at TEXT DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS gem_market_prices (
+      gem_type       TEXT PRIMARY KEY,
+      category       TEXT,
+      cheapest_price REAL,
+      currency       TEXT DEFAULT 'divine',
+      seller         TEXT,
+      seller_online  INTEGER DEFAULT 0,
+      indexed        TEXT,
+      total_listings INTEGER DEFAULT 0,
+      fetched_at     TEXT DEFAULT (datetime('now'))
+    );
   `);
 
 console.log(`Base de datos lista en: ${dbPath}`);
