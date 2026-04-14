@@ -14,226 +14,217 @@ function isListingRecent(listing) {
   return indexed >= cutoff;
 }
 
-// ─── Lista maestra de gemas con categoría ────────────────────────────────────
+// ─── Lista maestra de gemas con categoría — CORREGIDA contra API oficial ─────
+// Cambios respecto a la versión anterior:
+//   - Nombres actualizados según /api/trade2/data/items (parche actual)
+//   - 11 gemas eliminadas por no existir en la API: Caustic Arrow, Wind Strike,
+//     Ruin, Enervate, Charge, Carnivorous Shrine, Seismic Focus,
+//     Electric Burst Rounds, Execute (skill), Slash, Thorn Zone
+//   - ⚠️ Algunas correcciones son aproximadas — revisar in-game si dan 400
 const GEMS = [
-  // Arco
-  { type: 'Tornado Shot',            cat: 'Arco' },
-  { type: 'Ice Shot',                cat: 'Arco' },
-  { type: 'Lightning Arrow',         cat: 'Arco' },
-  { type: 'Barrage',                 cat: 'Arco' },
-  { type: 'Rain of Arrows',          cat: 'Arco' },
-  { type: 'Vine Arrow',              cat: 'Arco' },
-  { type: 'Spiral Volley',           cat: 'Arco' },
-  { type: 'Electrocuting Arrow',     cat: 'Arco' },
-  { type: 'Freezing Salvo',          cat: 'Arco' },
-  { type: 'Snipe',                   cat: 'Arco' },
-  { type: 'Ice-Tipped Arrows',       cat: 'Arco' },
-  { type: 'Gas Arrow',               cat: 'Arco' },
-  { type: 'Explosive Arrow',         cat: 'Arco' },
-  { type: 'Toxic Growth',            cat: 'Arco' },
-  { type: 'Magnetic Salvo',          cat: 'Arco' },
-  { type: 'Toxic Dominion',          cat: 'Arco' },
-  { type: 'Disengage',               cat: 'Arco' },
-  { type: 'Lightning Rod',           cat: 'Arco' },
-  { type: 'Storm Caller Arrow',      cat: 'Arco' },
-  { type: 'Paralyzing Arrow',        cat: 'Arco' },
-  { type: 'Freezing Mark',           cat: 'Arco' },
-  { type: "Sniper's Mark",           cat: 'Arco' },
-  { type: 'Voltaic Mark',            cat: 'Arco' },
-  { type: 'Caustic Arrow',           cat: 'Arco' },
-  // Bastón
-  { type: 'Charged Staff',           cat: 'Bastón' },
-  { type: 'Killing Palm',            cat: 'Bastón' },
-  { type: 'Glacial Cascade',         cat: 'Bastón' },
-  { type: 'Tempest Bell',            cat: 'Bastón' },
-  { type: 'Whirling Assault',        cat: 'Bastón' },
-  { type: 'Permafrost Bolt',         cat: 'Bastón' },
-  { type: 'Wind Strike',             cat: 'Bastón' },
-  { type: 'Destabilising Palm',      cat: 'Bastón' },
-  { type: 'Ice Strike',              cat: 'Bastón' },
-  { type: 'Tempest Flurry',          cat: 'Bastón' },
-  { type: 'Rushing Assault',         cat: 'Bastón' },
-  { type: 'Frost Wall',              cat: 'Bastón' },
-  { type: 'Drain Strike',            cat: 'Bastón' },
-  { type: 'Storm Wave',              cat: 'Bastón' },
-  { type: 'Hand of Chayula',         cat: 'Bastón' },
-  { type: 'Ruin',                    cat: 'Bastón' },
-  { type: 'Shattering Palm',         cat: 'Bastón' },
-  { type: 'Thunder Clap',            cat: 'Bastón' },
-  { type: 'Snap',                    cat: 'Bastón' },
-  { type: 'Impending Doom',          cat: 'Bastón' },
-  // Ocultismo
-  { type: 'Skeletal Archer',         cat: 'Ocultismo' },
-  { type: 'Unearth',                 cat: 'Ocultismo' },
-  { type: 'Contagion',               cat: 'Ocultismo' },
-  { type: 'Enervate',                cat: 'Ocultismo' },
-  { type: 'Skeletal Pyromancer',     cat: 'Ocultismo' },
-  { type: 'Bone Cage',               cat: 'Ocultismo' },
-  { type: 'Essence Drain',           cat: 'Ocultismo' },
-  { type: 'Raise Zombie',            cat: 'Ocultismo' },
-  { type: 'Skeletal Frost Mage',     cat: 'Ocultismo' },
-  { type: 'Pain Offering',           cat: 'Ocultismo' },
-  { type: 'Bone Storm',              cat: 'Ocultismo' },
-  { type: 'Detonate Dead',           cat: 'Ocultismo' },
-  { type: 'Vulnerability',           cat: 'Ocultismo' },
-  { type: 'Raise Spectre',           cat: 'Ocultismo' },
-  { type: 'Profane Ritual',          cat: 'Ocultismo' },
-  { type: 'Skeletal Slasher',        cat: 'Ocultismo' },
-  { type: 'Despair',                 cat: 'Ocultismo' },
-  { type: 'Dark Effigy',             cat: 'Ocultismo' },
-  { type: 'Skeletal Storm Mage',     cat: 'Ocultismo' },
-  { type: 'Bone Offering',           cat: 'Ocultismo' },
-  { type: 'Malefic Blast',           cat: 'Ocultismo' },
-  { type: 'Skeleton Brute',          cat: 'Ocultismo' },
-  { type: 'Skeletal Cleric',         cat: 'Ocultismo' },
-  { type: 'Soul Offering',           cat: 'Ocultismo' },
-  // Primalismo
-  { type: 'Volcano',                 cat: 'Primalismo' },
-  { type: 'Furious Assault',         cat: 'Primalismo' },
-  { type: 'Snare',                   cat: 'Primalismo' },
-  { type: 'Lunar Assault',           cat: 'Primalismo' },
-  { type: 'Seismic Totem',           cat: 'Primalismo' },
-  { type: 'Magma Orb',               cat: 'Primalismo' },
-  { type: 'Charge',                  cat: 'Primalismo' },
-  { type: 'Winged Explosion',        cat: 'Primalismo' },
-  { type: 'Rolling Thunder',         cat: 'Primalismo' },
-  { type: 'Mountain Fury',           cat: 'Primalismo' },
-  { type: 'Devour',                  cat: 'Primalismo' },
-  { type: 'Arctic Howl',             cat: 'Primalismo' },
-  { type: 'Savage Cry',              cat: 'Primalismo' },
-  { type: 'Spell Totem',             cat: 'Primalismo' },
-  { type: 'Crosscut',                cat: 'Primalismo' },
-  { type: 'Oil Barrage',             cat: 'Primalismo' },
-  { type: 'Carnivorous Shrine',      cat: 'Primalismo' },
-  { type: 'Tornado',                 cat: 'Primalismo' },
-  { type: 'Rampage',                 cat: 'Primalismo' },
-  { type: 'Flame Breath',            cat: 'Primalismo' },
-  { type: 'Lunar Blessing',          cat: 'Primalismo' },
-  { type: 'Walking Calamity',        cat: 'Primalismo' },
-  // Maza
-  { type: 'Earthquake',              cat: 'Maza' },
-  { type: 'Bone Shatter',            cat: 'Maza' },
-  { type: 'Rolling Slam',            cat: 'Maza' },
-  { type: 'Armour Breaker',          cat: 'Maza' },
-  { type: 'Infernal Cry',            cat: 'Maza' },
-  { type: 'Shield Charge',           cat: 'Maza' },
-  { type: 'Perfect Strike',          cat: 'Maza' },
-  { type: 'Molten Blast',            cat: 'Maza' },
-  { type: 'Resonating Shield',       cat: 'Maza' },
-  { type: 'Leap Slam',               cat: 'Maza' },
-  { type: 'Seismic Focus',           cat: 'Maza' },
-  { type: 'Volcanic Fissure',        cat: 'Maza' },
-  { type: 'Bulwark',                 cat: 'Maza' },
-  { type: 'Fissure',                 cat: 'Maza' },
-  { type: 'Fortify',                 cat: 'Maza' },
-  { type: 'Forge Hammer',            cat: 'Maza' },
-  { type: 'Seismic Cry',             cat: 'Maza' },
-  { type: 'Supercharged Slam',       cat: 'Maza' },
-  { type: 'Stampede',                cat: 'Maza' },
-  { type: 'Ancestral Warrior Totem', cat: 'Maza' },
-  { type: 'Hammer of the Gods',      cat: 'Maza' },
-  { type: 'Ancestral Cry',           cat: 'Maza' },
-  // Ballesta
-  { type: 'Fragmentation Rounds',    cat: 'Ballesta' },
-  { type: 'Armour Piercing Rounds',  cat: 'Ballesta' },
-  { type: 'Permafrost Bolts',        cat: 'Ballesta' },
-  { type: 'Explosive Grenade',       cat: 'Ballesta' },
-  { type: 'High Velocity Rounds',    cat: 'Ballesta' },
-  { type: 'Incendiary Shot',         cat: 'Ballesta' },
-  { type: 'Stun Grenade',            cat: 'Ballesta' },
-  { type: 'Rapid Fire',              cat: 'Ballesta' },
-  { type: 'Ice Shards',              cat: 'Ballesta' },
-  { type: 'Galvanic Shards',         cat: 'Ballesta' },
-  { type: 'Gas Grenade',             cat: 'Ballesta' },
-  { type: 'Artillery Ballista',      cat: 'Ballesta' },
-  { type: 'Explosive Shot',          cat: 'Ballesta' },
-  { type: 'Glacial Bolt',            cat: 'Ballesta' },
-  { type: 'Voltaic Grenade',         cat: 'Ballesta' },
-  { type: 'Siege Ballista',          cat: 'Ballesta' },
-  { type: 'Explosive Storm Rounds',  cat: 'Ballesta' },
-  { type: 'Oil Grenade',             cat: 'Ballesta' },
-  { type: 'Hailstorm Rounds',        cat: 'Ballesta' },
-  { type: 'Electric Burst Rounds',   cat: 'Ballesta' },
-  { type: 'Emergency Reload',        cat: 'Ballesta' },
-  { type: 'Mortar Round',            cat: 'Ballesta' },
-  { type: 'Siege Cascade',           cat: 'Ballesta' },
-  { type: 'Plasma Explosion',        cat: 'Ballesta' },
-  { type: 'Cluster Grenade',         cat: 'Ballesta' },
-  // Lanza
-  { type: 'Recoil',                  cat: 'Lanza' },
-  { type: 'Whirling Slash',          cat: 'Lanza' },
-  { type: 'Whirlwind',               cat: 'Lanza' },
-  { type: 'Explosive Spear',         cat: 'Lanza' },
-  { type: 'Lightning Spear',         cat: 'Lanza' },
-  { type: 'Execute',                 cat: 'Lanza' },
-  { type: 'Frost Fangs',             cat: 'Lanza' },
-  { type: 'Slash',                   cat: 'Lanza' },
-  { type: 'Quick Assault',           cat: 'Lanza' },
-  { type: 'Spear Field',             cat: 'Lanza' },
-  { type: 'Storm Thrust',            cat: 'Lanza' },
-  { type: 'Blood Hunt',              cat: 'Lanza' },
-  { type: 'Glacial Thrust',          cat: 'Lanza' },
-  { type: 'Primal Strikes',          cat: 'Lanza' },
-  { type: 'Thundering Leap',         cat: 'Lanza' },
-  { type: "Hound's Mark",            cat: 'Lanza' },
-  { type: 'Tame Beast',              cat: 'Lanza' },
-  { type: 'Whirlwind Thrust',        cat: 'Lanza' },
-  { type: 'Elemental Pulse',         cat: 'Lanza' },
-  { type: 'Wind Serpent Fury',       cat: 'Lanza' },
-  { type: 'Spear of Solaris',        cat: 'Lanza' },
-  // Heraldo
-  { type: 'Herald of Blood',         cat: 'Heraldo' },
-  { type: 'Herald of Ice',           cat: 'Heraldo' },
-  { type: 'Herald of Thunder',       cat: 'Heraldo' },
-  { type: 'Herald of Ash',           cat: 'Heraldo' },
-  // Soporte
-  { type: 'Trinity',                 cat: 'Soporte' },
-  { type: 'Archmage',                cat: 'Soporte' },
-  { type: 'Blasphemy',               cat: 'Soporte' },
-  { type: 'Arctic Armour',           cat: 'Soporte' },
-  { type: 'Mirage Archer',           cat: 'Soporte' },
-  { type: 'Wind Dancer',             cat: 'Soporte' },
-  { type: 'Defiance Banner',         cat: 'Soporte' },
-  { type: 'War Banner',              cat: 'Soporte' },
-  { type: 'Dread Banner',            cat: 'Soporte' },
-  { type: 'Cast on Dodge Roll',      cat: 'Soporte' },
-  { type: 'Charge Management',       cat: 'Soporte' },
-  { type: 'Reaper Conjuration',      cat: 'Soporte' },
-  { type: 'Barrier Invocation',      cat: 'Soporte' },
-  { type: 'Persistent Illusion',     cat: 'Soporte' },
-  { type: 'Elemental Invocation',    cat: 'Soporte' },
-  { type: 'Raging Spirits',          cat: 'Soporte' },
-  { type: 'Convalescence',           cat: 'Soporte' },
-  { type: 'Mana Remnants',           cat: 'Soporte' },
-  { type: 'Element Drain',           cat: 'Soporte' },
-  { type: 'Blink',                   cat: 'Soporte' },
-  { type: 'Elemental Confluence',    cat: 'Soporte' },
-  { type: 'Grim Feast',              cat: 'Soporte' },
-  { type: 'Withering Presence',      cat: 'Soporte' },
-  { type: 'Devouring Swarm',         cat: 'Soporte' },
-  { type: 'Cast on Minion Death',    cat: 'Soporte' },
-  { type: 'Cast on Critical Strike', cat: 'Soporte' },
-  { type: 'Sacrifice',               cat: 'Soporte' },
-  { type: 'Thorn Zone',              cat: 'Soporte' },
-  { type: 'Wild Fury',               cat: 'Soporte' },
-  { type: 'Wolf Pack',               cat: 'Soporte' },
-  { type: 'Moment of Need',          cat: 'Soporte' },
-  { type: 'Overwhelming Presence',   cat: 'Soporte' },
-  { type: 'Bark Skin',               cat: 'Soporte' },
-  { type: 'Eternal Fury',            cat: 'Soporte' },
-  { type: 'Wild Conjuration',        cat: 'Soporte' },
-  { type: 'Magma Barrier',           cat: 'Soporte' },
-  { type: 'Plundered Plates',        cat: 'Soporte' },
-  { type: 'Iron Barrier',            cat: 'Soporte' },
-  { type: 'Savagery',                cat: 'Soporte' },
-  { type: 'Ghost Dance',             cat: 'Soporte' },
-  { type: 'Attrition',               cat: 'Soporte' },
-  { type: 'Shard Collector',         cat: 'Soporte' },
-  { type: 'Combat Frenzy',           cat: 'Soporte' },
-  { type: 'Thorn Trail',             cat: 'Soporte' },
-  { type: 'Rhoa Mount',              cat: 'Soporte' },
-  { type: 'Phantom Archer',          cat: 'Soporte' },
-];
+    // Arco
+    { type: 'Tornado Shot',            cat: 'Arco' },
+    { type: 'Ice Shot',                cat: 'Arco' },
+    { type: 'Lightning Arrow',         cat: 'Arco' },
+    { type: 'Barrage',                 cat: 'Arco' },
+    { type: 'Rain of Arrows',          cat: 'Arco' },
+    { type: 'Vine Arrow',              cat: 'Arco' },
+    { type: 'Spiral Volley',           cat: 'Arco' },
+    { type: 'Electrocuting Arrow',     cat: 'Arco' },
+    { type: 'Freezing Salvo',          cat: 'Arco' },
+    { type: 'Snipe',                   cat: 'Arco' },
+    { type: 'Ice-Tipped Arrows',       cat: 'Arco' },
+    { type: 'Gas Arrow',               cat: 'Arco' },
+    { type: 'Detonating Arrow',        cat: 'Arco' },   // era: Explosive Arrow
+    { type: 'Toxic Growth',            cat: 'Arco' },
+    { type: 'Magnetic Salvo',          cat: 'Arco' },
+    { type: 'Toxic Domain',            cat: 'Arco' },   // era: Toxic Dominion
+    { type: 'Disengage',               cat: 'Arco' },
+    { type: 'Lightning Rod',           cat: 'Arco' },
+    { type: 'Stormcaller Arrow',       cat: 'Arco' },   // era: Storm Caller Arrow
+    { type: 'Poisonburst Arrow',       cat: 'Arco' },   // era: Paralyzing Arrow ⚠️
+    { type: 'Freezing Mark',           cat: 'Arco' },
+    { type: "Sniper's Mark",           cat: 'Arco' },
+    { type: 'Voltaic Mark',            cat: 'Arco' },
+    // Bastón
+    { type: 'Charged Staff',           cat: 'Bastón' },
+    { type: 'Killing Palm',            cat: 'Bastón' },
+    { type: 'Glacial Cascade',         cat: 'Bastón' },
+    { type: 'Tempest Bell',            cat: 'Bastón' },
+    { type: 'Whirling Assault',        cat: 'Bastón' },
+    { type: 'Permafrost Bolts',        cat: 'Bastón' },  // era: Permafrost Bolt
+    { type: 'Staggering Palm',         cat: 'Bastón' },  // era: Destabilising Palm ⚠️
+    { type: 'Ice Strike',              cat: 'Bastón' },
+    { type: 'Tempest Flurry',          cat: 'Bastón' },
+    { type: 'Rapid Assault',           cat: 'Bastón' },  // era: Rushing Assault ⚠️
+    { type: 'Frost Wall',              cat: 'Bastón' },
+    { type: 'Siphoning Strike',        cat: 'Bastón' },  // era: Drain Strike ⚠️
+    { type: 'Storm Wave',              cat: 'Bastón' },
+    { type: 'Hand of Chayula',         cat: 'Bastón' },
+    { type: 'Shattering Palm',         cat: 'Bastón' },
+    { type: 'Thunderstorm',            cat: 'Bastón' },  // era: Thunder Clap ⚠️
+    { type: 'Snap',                    cat: 'Bastón' },
+    { type: 'Impending Doom',          cat: 'Bastón' },
+    // Ocultismo
+    { type: 'Skeletal Sniper',         cat: 'Ocultismo' }, // era: Skeletal Archer
+    { type: 'Unearth',                 cat: 'Ocultismo' },
+    { type: 'Contagion',               cat: 'Ocultismo' },
+    { type: 'Skeletal Arsonist',       cat: 'Ocultismo' }, // era: Skeletal Pyromancer
+    { type: 'Bone Cage',               cat: 'Ocultismo' },
+    { type: 'Essence Drain',           cat: 'Ocultismo' },
+    { type: 'Raise Zombie',            cat: 'Ocultismo' },
+    { type: 'Skeletal Frost Mage',     cat: 'Ocultismo' },
+    { type: 'Pain Offering',           cat: 'Ocultismo' },
+    { type: 'Bonestorm',               cat: 'Ocultismo' }, // era: Bone Storm
+    { type: 'Detonate Dead',           cat: 'Ocultismo' },
+    { type: 'Vulnerability',           cat: 'Ocultismo' },
+    { type: 'Bind Spectre',            cat: 'Ocultismo' }, // era: Raise Spectre
+    { type: 'Profane Ritual',          cat: 'Ocultismo' },
+    { type: 'Skeletal Reaver',         cat: 'Ocultismo' }, // era: Skeletal Slasher
+    { type: 'Despair',                 cat: 'Ocultismo' },
+    { type: 'Dark Effigy',             cat: 'Ocultismo' },
+    { type: 'Skeletal Storm Mage',     cat: 'Ocultismo' },
+    { type: 'Bone Offering',           cat: 'Ocultismo' },
+    { type: 'Hexblast',                cat: 'Ocultismo' }, // era: Malefic Blast ⚠️
+    { type: 'Skeletal Brute',          cat: 'Ocultismo' }, // era: Skeleton Brute (typo)
+    { type: 'Skeletal Cleric',         cat: 'Ocultismo' },
+    { type: 'Soul Offering',           cat: 'Ocultismo' },
+    // Primalismo
+    { type: 'Volcano',                 cat: 'Primalismo' },
+    { type: 'Savage Fury',             cat: 'Primalismo' }, // era: Furious Assault
+    { type: 'Entangle',                cat: 'Primalismo' }, // era: Snare
+    { type: 'Lunar Assault',           cat: 'Primalismo' },
+    { type: 'Shockwave Totem',         cat: 'Primalismo' }, // era: Seismic Totem
+    { type: 'Rolling Magma',           cat: 'Primalismo' }, // era: Magma Orb
+    { type: 'Wing Blast',              cat: 'Primalismo' }, // era: Winged Explosion
+    { type: 'Falling Thunder',         cat: 'Primalismo' }, // era: Rolling Thunder
+    { type: 'Ferocious Roar',          cat: 'Primalismo' }, // era: Mountain Fury + Savage Cry
+    { type: 'Devour',                  cat: 'Primalismo' },
+    { type: 'Arctic Howl',             cat: 'Primalismo' },
+    { type: 'Spell Totem',             cat: 'Primalismo' },
+    { type: 'Oil Barrage',             cat: 'Primalismo' },
+    { type: 'Cross Slash',             cat: 'Primalismo' }, // era: Crosscut
+    { type: 'Tornado',                 cat: 'Primalismo' },
+    { type: 'Rampage',                 cat: 'Primalismo' },
+    { type: 'Flame Breath',            cat: 'Primalismo' },
+    { type: 'Lunar Blessing',          cat: 'Primalismo' },
+    { type: 'Walking Calamity',        cat: 'Primalismo' },
+    // Maza
+    { type: 'Earthquake',              cat: 'Maza' },
+    { type: 'Boneshatter',             cat: 'Maza' },       // era: Bone Shatter
+    { type: 'Rolling Slam',            cat: 'Maza' },
+    { type: 'Armour Breaker',          cat: 'Maza' },
+    { type: 'Infernal Cry',            cat: 'Maza' },
+    { type: 'Shield Charge',           cat: 'Maza' },
+    { type: 'Perfect Strike',          cat: 'Maza' },
+    { type: 'Molten Blast',            cat: 'Maza' },
+    { type: 'Resonating Shield',       cat: 'Maza' },
+    { type: 'Leap Slam',               cat: 'Maza' },
+    { type: 'Volcanic Fissure',        cat: 'Maza' },
+    { type: 'Iron Ward',               cat: 'Maza' },       // era: Bulwark ⚠️
+    { type: 'Earthshatter',            cat: 'Maza' },       // era: Fissure ⚠️
+    { type: 'Fortifying Cry',          cat: 'Maza' },       // era: Fortify
+    { type: 'Forge Hammer',            cat: 'Maza' },
+    { type: 'Seismic Cry',             cat: 'Maza' },
+    { type: 'Supercharged Slam',       cat: 'Maza' },
+    { type: 'Stampede',                cat: 'Maza' },
+    { type: 'Ancestral Warrior Totem', cat: 'Maza' },
+    { type: 'Hammer of the Gods',      cat: 'Maza' },
+    { type: 'Ancestral Cry',           cat: 'Maza' },
+    // Ballesta
+    { type: 'Fragmentation Rounds',    cat: 'Ballesta' },
+    { type: 'Armour Piercing Rounds',  cat: 'Ballesta' },
+    { type: 'Permafrost Bolts',        cat: 'Ballesta' },
+    { type: 'Explosive Grenade',       cat: 'Ballesta' },
+    { type: 'High Velocity Rounds',    cat: 'Ballesta' },
+    { type: 'Incendiary Shot',         cat: 'Ballesta' },
+    { type: 'Flash Grenade',           cat: 'Ballesta' },   // era: Stun Grenade
+    { type: 'Rapid Shot',              cat: 'Ballesta' },   // era: Rapid Fire
+    { type: 'Ice Shards',              cat: 'Ballesta' },
+    { type: 'Galvanic Shards',         cat: 'Ballesta' },
+    { type: 'Gas Grenade',             cat: 'Ballesta' },
+    { type: 'Artillery Ballista',      cat: 'Ballesta' },
+    { type: 'Explosive Shot',          cat: 'Ballesta' },
+    { type: 'Glacial Bolt',            cat: 'Ballesta' },
+    { type: 'Voltaic Grenade',         cat: 'Ballesta' },
+    { type: 'Siege Ballista',          cat: 'Ballesta' },
+    { type: 'Shockburst Rounds',       cat: 'Ballesta' },   // era: Explosive Storm Rounds ⚠️
+    { type: 'Oil Grenade',             cat: 'Ballesta' },
+    { type: 'Hailstorm Rounds',        cat: 'Ballesta' },
+    { type: 'Emergency Reload',        cat: 'Ballesta' },
+    { type: 'Mortar Cannon',           cat: 'Ballesta' },   // era: Mortar Round
+    { type: 'Siege Cascade',           cat: 'Ballesta' },
+    { type: 'Plasma Blast',            cat: 'Ballesta' },   // era: Plasma Explosion
+    { type: 'Cluster Grenade',         cat: 'Ballesta' },
+    // Lanza
+    { type: 'Escape Shot',             cat: 'Lanza' },      // era: Recoil ⚠️
+    { type: 'Whirling Slash',          cat: 'Lanza' },
+    { type: 'Whirlwind Lance',         cat: 'Lanza' },      // era: Whirlwind
+    { type: 'Explosive Spear',         cat: 'Lanza' },
+    { type: 'Lightning Spear',         cat: 'Lanza' },
+    { type: 'Fangs of Frost',          cat: 'Lanza' },      // era: Frost Fangs (invertido)
+    { type: 'Primal Strikes',          cat: 'Lanza' },
+    { type: 'Spearfield',              cat: 'Lanza' },      // era: Spear Field
+    { type: 'Storm Lance',             cat: 'Lanza' },      // era: Storm Thrust ⚠️
+    { type: 'Blood Hunt',              cat: 'Lanza' },
+    { type: 'Glacial Lance',           cat: 'Lanza' },      // era: Glacial Thrust
+    { type: 'Thunderous Leap',         cat: 'Lanza' },      // era: Thundering Leap (typo)
+    { type: "Bloodhound's Mark",       cat: 'Lanza' },      // era: Hound's Mark
+    { type: 'Tame Beast',              cat: 'Lanza' },
+    { type: 'Vaulting Impact',         cat: 'Lanza' },      // era: Whirlwind Thrust ⚠️
+    { type: 'Elemental Sundering',     cat: 'Lanza' },      // era: Elemental Pulse ⚠️
+    { type: "Wind Serpent's Fury",     cat: 'Lanza' },      // era: Wind Serpent Fury (apóstrofe)
+    { type: 'Spear of Solaris',        cat: 'Lanza' },
+    // Heraldo
+    { type: 'Herald of Blood',         cat: 'Heraldo' },
+    { type: 'Herald of Ice',           cat: 'Heraldo' },
+    { type: 'Herald of Thunder',       cat: 'Heraldo' },
+    { type: 'Herald of Ash',           cat: 'Heraldo' },
+    // Soporte
+    { type: 'Trinity',                 cat: 'Soporte' },
+    { type: 'Archmage',                cat: 'Soporte' },
+    { type: 'Blasphemy',               cat: 'Soporte' },
+    { type: 'Arctic Armour',           cat: 'Soporte' },
+    { type: 'Mirage Archer',           cat: 'Soporte' },
+    { type: 'Wind Dancer',             cat: 'Soporte' },
+    { type: 'Defiance Banner',         cat: 'Soporte' },
+    { type: 'War Banner',              cat: 'Soporte' },
+    { type: 'Dread Banner',            cat: 'Soporte' },
+    { type: 'Cast on Dodge',           cat: 'Soporte' },    // era: Cast on Dodge Roll
+    { type: 'Charge Regulation',       cat: 'Soporte' },    // era: Charge Management
+    { type: "Reaper's Invocation",     cat: 'Soporte' },    // era: Reaper Conjuration
+    { type: 'Barrier Invocation',      cat: 'Soporte' },
+    { type: 'Lingering Illusion',      cat: 'Soporte' },    // era: Persistent Illusion
+    { type: 'Elemental Invocation',    cat: 'Soporte' },
+    { type: 'Raging Spirits',          cat: 'Soporte' },
+    { type: 'Convalescence',           cat: 'Soporte' },
+    { type: 'Mana Remnants',           cat: 'Soporte' },
+    { type: 'Siphon Elements',         cat: 'Soporte' },    // era: Element Drain
+    { type: 'Blink',                   cat: 'Soporte' },
+    { type: 'Elemental Conflux',       cat: 'Soporte' },    // era: Elemental Confluence
+    { type: 'Grim Feast',              cat: 'Soporte' },
+    { type: 'Withering Presence',      cat: 'Soporte' },
+    { type: 'Ravenous Swarm',          cat: 'Soporte' },    // era: Devouring Swarm
+    { type: 'Cast on Minion Death',    cat: 'Soporte' },
+    { type: 'Cast on Critical',        cat: 'Soporte' },    // era: Cast on Critical Strike
+    { type: 'Sacrifice',               cat: 'Soporte' },
+    { type: 'Feral Invocation',        cat: 'Soporte' },    // era: Wild Fury
+    { type: 'Wolf Pack',               cat: 'Soporte' },
+    { type: 'Time of Need',            cat: 'Soporte' },    // era: Moment of Need
+    { type: 'Overwhelming Presence',   cat: 'Soporte' },
+    { type: 'Barkskin',                cat: 'Soporte' },    // era: Bark Skin
+    { type: 'Eternal Rage',            cat: 'Soporte' },    // era: Eternal Fury
+    { type: 'Magma Barrier',           cat: 'Soporte' },
+    { type: 'Scavenged Plating',       cat: 'Soporte' },    // era: Plundered Plates
+    { type: 'Shield Wall',             cat: 'Soporte' },    // era: Iron Barrier
+    { type: 'Ghost Dance',             cat: 'Soporte' },
+    { type: 'Attrition',               cat: 'Soporte' },
+    { type: 'Shard Scavenger',         cat: 'Soporte' },    // era: Shard Collector
+    { type: 'Combat Frenzy',           cat: 'Soporte' },
+    { type: 'Trail of Caltrops',       cat: 'Soporte' },    // era: Thorn Trail
+    { type: 'Rhoa Mount',              cat: 'Soporte' },
+    // Mirage Archer ya existía arriba — Phantom Archer era duplicado, eliminado
+  ];
 
 // ─── GET /api/tracker/gems — datos en caché ──────────────────────────────────
 router.get('/gems', (req, res) => {
@@ -332,11 +323,28 @@ router.get('/scan', async (req, res) => {
 
       if (search.result?.length > 0) {
         total_listings = search.total || search.result.length;
-        const fetched  = await fetchListings(search.result.slice(0, 10), search.id);
-        const filtered = (fetched.result || [])
-          .filter(l => l?.listing?.price && isListingRecent(l.listing))
-          .sort((a, b) => a.listing.price.amount - b.listing.price.amount);
-        cheapest = filtered[0] || null;
+        
+        let cheapestFound = null;
+        const batchSize = 10;
+        
+        // Intentar hasta 3 batches si todos los listings son antiguos
+        for (let i = 0; i < Math.min(3, Math.ceil(search.result.length / batchSize)); i++) {
+          const batch = search.result.slice(i * batchSize, (i + 1) * batchSize);
+          if (batch.length === 0) break;
+          
+          const fetched  = await fetchListings(batch, search.id);
+          const filtered = (fetched.result || [])
+            .filter(l => l?.listing?.price && isListingRecent(l.listing))
+            .sort((a, b) => a.listing.price.amount - b.listing.price.amount);
+          
+          if (filtered.length > 0) {
+            cheapestFound = filtered[0];
+            break; // Encontrado, no hace falta más batches
+          }
+          // Si no encontramos nada en este batch, intentamos el siguiente
+        }
+        
+        cheapest = cheapestFound;
       }
 
       const price         = cheapest?.listing?.price?.amount    ?? null;
@@ -376,6 +384,8 @@ router.get('/scan', async (req, res) => {
 
     } catch (err) {
       console.error(`Error escaneando ${gem.type}:`, err.message);
+      if (err.response?.data) console.error('  Detalle:', JSON.stringify(err.response.data));
+       
       done++;
       send({
         status: 'gem_error',
