@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import GEM_TRANSLATIONS from '../gemTranslations'
+import { useMonitor } from '../MonitorContext'
 
 const CURRENCIES = ['chaos', 'divine', 'exalted', 'aug']
 const POLL_OPTIONS = [
@@ -9,9 +10,7 @@ const POLL_OPTIONS = [
   { label: '30 min', value: 30 * 60 },
 ]
 
-// ─── Síntesis de voz ────────────────────────────────────────────────────────
 let _lastSpokenText = ''
-
 function hablar(texto) {
   if (!window.speechSynthesis) return
   _lastSpokenText = texto
@@ -21,88 +20,46 @@ function hablar(texto) {
   msg.rate = 1.1
   msg.volume = 1
   const voces = window.speechSynthesis.getVoices()
-  const vozEs = voces.find(v => v.lang.startsWith('es') && v.localService)
-    || voces.find(v => v.lang.startsWith('es'))
+  const vozEs = voces.find(v => v.lang.startsWith('es') && v.localService) || voces.find(v => v.lang.startsWith('es'))
   if (vozEs) msg.voice = vozEs
   window.speechSynthesis.speak(msg)
 }
 
-function repetirUltimoAviso() {
-  if (_lastSpokenText) hablar(_lastSpokenText)
-}
-
-// ─── Formato de cuenta atrás ────────────────────────────────────────────────
 function formatCountdown(seconds) {
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
   return `${m}:${String(s).padStart(2, '0')}`
 }
-
-export default function Monitor() {
+function repetirUltimoAviso() {
+  if (_lastSpokenText) hablar(_lastSpokenText)
+}
+export default function Monitor({ league = 'Standard' }) {
   const [importing, setImporting] = useState(false)
   const [importProgress, setImportProgress] = useState(null)
-  const [checkProgress, setCheckProgress] = useState(null)
-  const [items, setItems] = useState([])
-  const [results, setResults] = useState([])
-  const [loading, setLoading] = useState(false)
+  
   const [form, setForm] = useState({ name: '', type: '', my_price: '', currency: 'chaos', category: 'item' })
   const [sortBy, setSortBy] = useState('price_desc')
+  const {
+    items, setItems,
+    results, setResults,
+    loading, setLoading,
+    checkProgress, setCheckProgress,
+    pollInterval, setPollInterval,
+    countdown,
+    soundEnabled, setSoundEnabled,
+    toasts,
+    addToast,
+    checkPrices,
+    loadItems,
+    isAutoCheckRef
+  } = useMonitor()
 
-  // Polling
-  const [pollInterval, setPollInterval] = useState(() => {
-    const saved = localStorage.getItem('poe2_poll_interval')
-    return saved !== null ? parseInt(saved) : 0
-  })
-  const [countdown, setCountdown] = useState(0)
-  const countdownRef = useRef(null)
-  const pollTimeoutRef = useRef(null)
-  const isAutoCheckRef = useRef(false)
+  
 
-  // Sonido
-  const [soundEnabled, setSoundEnabled] = useState(() => {
-    const saved = localStorage.getItem('poe2_sound_enabled')
-    return saved !== null ? saved === 'true' : true
-  })
 
-  // Toasts
-  const [toasts, setToasts] = useState([])
-  const toastIdRef = useRef(0)
-
-  // ─── Toast helpers ──────────────────────────────────────────────────────────
-  function addToast(message, type = 'warn') {
-    const id = ++toastIdRef.current
-    setToasts(prev => [...prev, { id, message, type }])
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000)
-  }
-
-  // ─── Persistencia ───────────────────────────────────────────────────────────
-  useEffect(() => {
-    localStorage.setItem('poe2_poll_interval', String(pollInterval))
-  }, [pollInterval])
-
-  useEffect(() => {
-    localStorage.setItem('poe2_sound_enabled', String(soundEnabled))
-  }, [soundEnabled])
-
-  // ─── Carga inicial ──────────────────────────────────────────────────────────
-  useEffect(() => {
-    loadItems()
-  }, [])
-
-  async function loadItems() {
-    const res = await fetch('/api/monitor/items')
-    const data = await res.json()
-    setItems(data)
-  }
-
-  // ─── Nombre traducido ────────────────────────────────────────────────────────
   function getDisplayName(item) {
     let query
-    try {
-      query = typeof item.query === 'string' ? JSON.parse(item.query) : item.query
-    } catch {
-      query = null
-    }
+    try { query = typeof item.query === 'string' ? JSON.parse(item.query) : item.query } catch { query = null }
     const type = query?.query?.type
     const translated = (type && GEM_TRANSLATIONS[type]) || GEM_TRANSLATIONS[item.name] || null
     return {
@@ -111,241 +68,117 @@ export default function Monitor() {
     }
   }
 
-  // ─── Resultado representativo de un grupo ────────────────────────────────────
-  // Para el estado y los avisos sonoros solo se usa el ítem con my_price más bajo.
-  function getRepresentativeResult(group) {
-    const minItem = group.reduce((a, b) => a.my_price <= b.my_price ? a : b)
-    return (
-      results.find(r => r.item === minItem.name && r.myPrice === minItem.my_price)
-      ?? results.find(r => r.item === minItem.name)
-      ?? null
-    )
-  }
-
-  // ─── Lógica de sonido/avisos tras comprobar ──────────────────────────────────
-  function procesarResultados(resultados, esAutomatico) {
-    if (!esAutomatico || !soundEnabled) return
-
-    // Un resultado por nombre: el del precio más bajo del grupo
-    const porNombre = new Map()
-    for (const r of resultados) {
-      if (r.error) continue
-      const existing = porNombre.get(r.item)
-      if (!existing || r.myPrice < existing.myPrice) {
-        porNombre.set(r.item, r)
-      }
-    }
-    const representativos = Array.from(porNombre.values())
-
-    const superados = representativos.filter(r => !r.isMinPrice)
-    const empates   = representativos.filter(r => r.isMinPrice && r.tied)
-
-    if (superados.length > 0) {
-      const nombres = superados.map(r => {
-        const item = items.find(i => i.name === r.item)
-        return item ? getDisplayName(item).display : r.item
-      })
-      hablar(
-        `Atención. ${superados.length === 1 ? 'Un ítem' : `${superados.length} ítems`} con precio superado: ${nombres.join(', ')}`
-      )
-      superados.forEach(r => {
-        const item = items.find(i => i.name === r.item)
-        const nombre = item ? getDisplayName(item).display : r.item
-        addToast(`⚠️ ${nombre} — hay ofertas a ${r.marketMin} ${r.marketCurrency}`, 'warn')
-      })
-    } else if (empates.length > 0) {
-      hablar('Empate de precio detectado.')
-      empates.forEach(r => {
-        const item = items.find(i => i.name === r.item)
-        const nombre = item ? getDisplayName(item).display : r.item
-        addToast(`⚡ ${nombre} — empate a ${r.marketMin} ${r.marketCurrency}`, 'info')
-      })
-    }
-  }
-
-  // ─── checkPrices ────────────────────────────────────────────────────────────
-  const checkPrices = useCallback((esAutomatico = false) => {
-    if (loading) return
-    setLoading(true)
-    setResults([])
-    setCheckProgress({ message: 'Iniciando...', progress: 0, total: 0 })
-    isAutoCheckRef.current = esAutomatico
-
-    const evtSource = new EventSource('/api/monitor/check')
-
-    evtSource.onmessage = (e) => {
-      const data = JSON.parse(e.data)
-
-      if (data.status === 'checking') {
-        setCheckProgress(data)
-      }
-
-      if (data.status === 'done') {
-        evtSource.close()
-        setResults(data.results)
-        setLoading(false)
-        setCheckProgress(null)
-        procesarResultados(data.results, esAutomatico)
-      }
-
-      if (data.error) {
-        evtSource.close()
-        setLoading(false)
-        setCheckProgress({ message: `Error: ${data.error}` })
-      }
-    }
-
-    evtSource.onerror = () => {
-      evtSource.close()
-      setLoading(false)
-      setCheckProgress({ message: 'Error de conexión' })
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, soundEnabled, items])
-
-  // ─── Polling + cuenta atrás ──────────────────────────────────────────────────
-  useEffect(() => {
-    clearInterval(countdownRef.current)
-    clearTimeout(pollTimeoutRef.current)
-    setCountdown(0)
-
-    if (pollInterval === 0) return
-
-    let remaining = pollInterval
-
-    function tick() {
-      remaining -= 1
-      setCountdown(remaining)
-
-      if (remaining <= 0) {
-        remaining = pollInterval
-        if (!loading) {
-          checkPrices(true)
-        }
-      }
-    }
-
-    setCountdown(remaining)
-    countdownRef.current = setInterval(tick, 1000)
-
-    return () => clearInterval(countdownRef.current)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pollInterval])
-
-  useEffect(() => {
-    if (loading && !isAutoCheckRef.current) {
-      clearInterval(countdownRef.current)
-    }
-  }, [loading])
-
-  // ─── Importar listings ───────────────────────────────────────────────────────
-  async function importListings() {
-    setImporting(true)
-    setImportProgress({ message: 'Conectando...' })
-
-    const evtSource = new EventSource('/api/import/listings')
-
-    evtSource.onmessage = async (e) => {
-      const data = JSON.parse(e.data)
-
-      if (data.status === 'fetching' || data.status === 'found' || data.status === 'searching') {
-        setImportProgress(data)
-      }
-
-      if (data.status === 'done') {
-        evtSource.close()
-        await loadItems()
-        setImporting(false)
-        setImportProgress(null)
-      }
-
-      if (data.error) {
-        evtSource.close()
-        setImporting(false)
-        setImportProgress({ message: `Error: ${data.error}` })
-      }
-    }
-
-    evtSource.onerror = () => {
-      evtSource.close()
-      setImporting(false)
-      setImportProgress({ message: 'Error de conexión' })
-    }
-  }
-
-  // ─── Añadir ítem manual ──────────────────────────────────────────────────────
   async function addItem(e) {
     e.preventDefault()
-    if (!form.name || !form.type || !form.my_price) return
-
-    let query
-    if (form.category === 'gem') {
-      query = {
-        query: {
-          type: form.type,
-          stats: [{ type: 'and', filters: [], disabled: true }],
-          status: { option: 'any' },
-          filters: {
-            misc_filters: {
-              filters: { gem_level: { min: 21 }, gem_sockets: { min: 5 } },
-              disabled: false
-            }
-          }
-        },
-        sort: { price: 'asc' }
-      }
-    } else {
-      query = { query: { filters: {}, type: form.type }, sort: { price: 'asc' } }
+    if (!form.name || !form.type || !form.my_price) {
+      addToast('Completa todos los campos', 'error')
+      return
     }
 
-    await fetch('/api/monitor/items', {
+    const query = {
+      query: {
+        type: form.type,
+        stats: [{ type: 'and', filters: [], disabled: true }],
+        status: { option: 'any' },
+        filters: {}
+      },
+      sort: { price: 'asc' }
+    }
+
+    if (form.category === 'gem') {
+      query.query.filters = {
+        misc_filters: { filters: { gem_level: { min: 21 }, gem_sockets: { min: 5 } }, disabled: false },
+        trade_filters: { filters: { price: { option: form.currency } } }
+      }
+    }
+
+    const res = await fetch('/api/monitor/items', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: form.name, query, my_price: parseFloat(form.my_price), currency: form.currency })
+      body: JSON.stringify({
+        name: form.name,
+        category: form.category,
+        query,
+        my_price: parseFloat(form.my_price),
+        currency: form.currency
+      })
     })
-    setForm({ name: '', type: '', my_price: '', currency: 'chaos', category: 'item' })
-    loadItems()
+
+    if (res.ok) {
+      setForm({ name: '', type: '', my_price: '', currency: 'chaos', category: 'item' })
+      loadItems()
+      addToast('Ítem agregado correctamente', 'success')
+    }
   }
 
   async function deleteItem(id) {
     await fetch(`/api/monitor/items/${id}`, { method: 'DELETE' })
     loadItems()
+    addToast('Ítem eliminado', 'info')
   }
 
   async function clearAllItems() {
-    if (!confirm('¿Borrar todos los ítems de la lista?')) return
-    await Promise.all(items.map(item => fetch(`/api/monitor/items/${item.id}`, { method: 'DELETE' })))
-    setItems([])
-    setResults([])
+    if (confirm('¿Eliminar todos los ítems?')) {
+      for (const item of items) {
+        await fetch(`/api/monitor/items/${item.id}`, { method: 'DELETE' })
+      }
+      loadItems()
+      addToast('Todos los ítems eliminados', 'info')
+    }
   }
 
-  // ─── Sorted items ────────────────────────────────────────────────────────────
+  async function importListings() {
+    setImporting(true)
+    setImportProgress({ message: 'Conectando...', progress: 0, total_chunks: 0 })
+
+    const evtSource = new EventSource(`/api/import/listings?league=${league}`)
+
+    evtSource.onmessage = async (e) => {
+      const data = JSON.parse(e.data)
+      if (data.status === 'fetching' || data.status === 'found' || data.status === 'searching') {
+        setImportProgress(data)
+      }
+      if (data.status === 'done') {
+        evtSource.close()
+        await loadItems()
+        setImporting(false)
+        setImportProgress(null)
+        addToast('Importación completada', 'success')
+      }
+      if (data.error) {
+        evtSource.close()
+        setImporting(false)
+        setImportProgress({ message: `Error: ${data.error}` })
+        addToast(`Error: ${data.error}`, 'error')
+      }
+    }
+    evtSource.onerror = () => {
+      evtSource.close()
+      setImporting(false)
+      setImportProgress({ message: 'Error de conexión' })
+      addToast('Error de conexión con el servidor', 'error')
+    }
+  }
+
+
+
   const sortedItems = [...items].sort((a, b) => {
     if (sortBy === 'price_desc') return b.my_price - a.my_price
     if (sortBy === 'price_asc') return a.my_price - b.my_price
-    if (sortBy === 'name') {
-      return getDisplayName(a).display.localeCompare(getDisplayName(b).display)
-    }
+    if (sortBy === 'name') return getDisplayName(a).display.localeCompare(getDisplayName(b).display)
     return 0
   })
 
-  // ─── Agrupar ítems por nombre ─────────────────────────────────────────────────
-  // Un grupo por nombre único. Dentro del grupo los precios están ordenados desc
-  // (mayor a menor), y el último elemento es siempre el más barato → es el
-  // "representativo" para calcular el estado y los avisos sonoros.
   const groupedItems = useMemo(() => {
     const map = new Map()
     for (const item of sortedItems) {
       if (!map.has(item.name)) map.set(item.name, [])
       map.get(item.name).push(item)
     }
-    for (const group of map.values()) {
-      group.sort((a, b) => b.my_price - a.my_price) // desc: 29, 8, 8, 3
-    }
+    for (const group of map.values()) group.sort((a, b) => b.my_price - a.my_price)
     return Array.from(map.values())
   }, [sortedItems])
 
-  // ─── Sub-componentes ─────────────────────────────────────────────────────────
   const ProgressBar = ({ progress, total, message }) => (
     <div className="card" style={{ marginBottom: '1rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -370,9 +203,10 @@ export default function Monitor() {
     </div>
   )
 
-  // ─── Estado del grupo (basado en el ítem de precio mínimo) ───────────────────
   function renderStatus(group) {
-    const result = getRepresentativeResult(group)
+    const result = results.find(r => r.item === group[0].name && r.myPrice === group[0].my_price)
+      ?? results.find(r => r.item === group[0].name)
+      ?? null
     if (!result) return <span className="status status--idle">— Sin comprobar</span>
     if (result.error) return <span className="status status--idle">— Error</span>
     if (result.isMinPrice) {
@@ -385,30 +219,24 @@ export default function Monitor() {
     return <span className="status status--warn">⚠️ Hay ofertas más baratas ({result.marketMin} {result.marketCurrency})</span>
   }
 
-  // ─── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="monitor">
-
-      {/* ── Toasts ── */}
+      {/* Toasts */}
       <div style={{ position: 'fixed', bottom: '1.5rem', right: '1.5rem', zIndex: 9999, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
         {toasts.map(t => (
           <div key={t.id} style={{
             background: t.type === 'warn' ? 'var(--status-warn-bg, #3a2800)' : 'var(--bg-elevated)',
             border: `1px solid ${t.type === 'warn' ? '#f59e0b' : 'var(--border)'}`,
-            color: 'var(--text-primary)',
-            padding: '0.65rem 1rem',
-            borderRadius: '6px',
-            fontSize: '0.85rem',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
-            animation: 'fadeIn 0.2s ease',
-            maxWidth: '320px'
+            color: 'var(--text-primary)', padding: '0.65rem 1rem', borderRadius: '6px',
+            fontSize: '0.85rem', boxShadow: '0 4px 12px rgba(0,0,0,0.4)', maxWidth: '320px'
           }}>
             {t.message}
           </div>
         ))}
       </div>
 
-      {/* ── Cabecera ── */}
+      {/* Cabecera */}
+      {/* Cabecera */}
       <div className="page-header">
         <h1 className="page-heading">🔔 Monitor de Precio</h1>
 
@@ -458,133 +286,139 @@ export default function Monitor() {
           🔁
         </button>
 
-        <button className="btn btn--primary" onClick={() => checkPrices(false)} disabled={loading || items.length === 0}>
+        <button
+          className="btn btn--primary"
+          onClick={() => checkPrices(false)}
+          disabled={loading || items.length === 0}
+        >
           {loading && !isAutoCheckRef.current ? 'Comprobando...' : 'Comprobar ahora'}
         </button>
-        <button className="btn btn--primary" onClick={importListings} disabled={importing}>
+
+        <button
+          className="btn btn--primary"
+          onClick={importListings}
+          disabled={importing}
+        >
           {importing ? '⏳ Importando...' : '📥 Importar mis listings'}
         </button>
-        <button className="btn btn--danger" onClick={clearAllItems} disabled={items.length === 0}>
+
+        <button
+          className="btn btn--danger"
+          onClick={clearAllItems}
+          disabled={items.length === 0}
+        >
           🗑️ Borrar lista
         </button>
       </div>
 
-      {checkProgress && (
-        <ProgressBar progress={checkProgress.progress} total={checkProgress.total} message={checkProgress.message} />
-      )}
-
+      {/* Barras de progreso */}
+      {checkProgress && <ProgressBar {...checkProgress} />}
       {importProgress && (
-        <ProgressBar progress={importProgress.progress} total={importProgress.total_chunks} message={importProgress.message} />
+        <ProgressBar 
+          progress={importProgress.progress} 
+          total={importProgress.total_chunks} 
+          message={importProgress.message} 
+        />
       )}
 
-      {/* ── Formulario añadir ── */}
+     
+
+      
+
+      {/* Tabla de ítems */}
       <div className="card">
-        <div className="card-title">Añadir ítem a vigilar</div>
-        <form className="add-form" onSubmit={addItem}>
-          <select className="input input--short" value={form.category}
-            onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
-            <option value="item">Ítem</option>
-            <option value="gem">Gema</option>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <h3>📋 Mi Lista de Venta ({items.length} ítems)</h3>
+          <select 
+            value={sortBy} 
+            onChange={(e) => setSortBy(e.target.value)} 
+            className="input input--short"
+            style={{
+              background: 'var(--bg-elevated)',
+              border: '1px solid var(--border)',
+              borderRadius: '6px',
+              color: 'var(--text-primary)',
+              padding: '0.35rem 2rem 0.35rem 0.75rem',
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              appearance: 'none',
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'right 0.5rem center',
+            }}
+          >
+            <option value="price_desc">💰 Mayor precio</option>
+            <option value="price_asc">💰 Menor precio</option>
+            <option value="name">🔤 Nombre</option>
           </select>
-          <input className="input" placeholder="Nombre (ej: Chaos Orb)"
-            value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
-          <input className="input" placeholder="Type exacto de la API (ej: Chaos Orb)"
-            value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))} />
-          <input className="input input--short" type="number" placeholder="Mi precio"
-            value={form.my_price} onChange={e => setForm(f => ({ ...f, my_price: e.target.value }))} />
-          <select className="input input--short" value={form.currency}
-            onChange={e => setForm(f => ({ ...f, currency: e.target.value }))}>
-            {CURRENCIES.map(c => <option key={c}>{c}</option>)}
-          </select>
-          <button className="btn btn--primary" type="submit">Añadir</button>
-        </form>
-      </div>
+        </div>
 
-      {/* ── Tabla agrupada ── */}
-      {items.length > 0 && (
-        <div className="card">
-          <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>Mi lista de venta</span>
-            <select className="input input--short" value={sortBy} onChange={e => setSortBy(e.target.value)}>
-              <option value="price_desc">💰 Mayor precio</option>
-              <option value="price_asc">💰 Menor precio</option>
-              <option value="name">🔤 Nombre</option>
-            </select>
-          </div>
-          <table className="table">
-            <thead>
+        {groupedItems.length === 0 ? (
+          <p className="empty-state">No hay ítems. Importa tus listings o agrega manualmente.</p>
+        ) : (
+          <div className="items-table">
+            <table style={{ tableLayout: 'fixed', width: '100%' }}>
+              <colgroup>
+              <col style={{ width: '28%' }} />
+              <col style={{ width: '18%' }} />
+              <col style={{ width: '10%' }} />
+              <col style={{ width: '44%' }} />
+              </colgroup>
+              <thead>
               <tr>
-                <th>Ítem</th><th>Mis precios</th><th>Divisa</th><th>Estado</th>
+                <th style={{ whiteSpace: 'nowrap', textAlign: 'left' }}>Ítem</th>
+                <th style={{ whiteSpace: 'nowrap', textAlign: 'left' }}>Mis precios</th>
+                <th style={{ whiteSpace: 'nowrap', textAlign: 'left' }}>Divisa</th>
+                <th style={{ whiteSpace: 'nowrap', textAlign: 'left' }}>Estado</th>
               </tr>
-            </thead>
-            <tbody>
-              {groupedItems.map(group => {
-                const representative = group[0]
-                const { display, original } = getDisplayName(representative)
-
-                return (
-                  <tr key={representative.name}>
-                    {/* Nombre */}
-                    <td>
-                      <span
-                        title={original ? `Nombre original: ${original}` : undefined}
-                        style={original ? { cursor: 'help', borderBottom: '1px dotted var(--text-secondary)' } : undefined}
-                      >
-                        {display}
-                      </span>
-                    </td>
-
-                    {/* Precios — uno por entrada de BD, con X individual */}
-                    {/* El precio más bajo (último del array) se resalta */}
-                    <td>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
-                        {group.map((item, idx) => {
-                          const isMin = idx === group.length - 1 && group.length > 1
-                          return (
-                            <span
-                              key={item.id}
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '0.2rem',
+              </thead>
+              <tbody>
+                {groupedItems.map(group => {
+                  const representative = group[0]
+                  const { display, original } = getDisplayName(representative)
+                  return (
+                    <tr key={representative.name}>
+                      <td>
+                        <span
+                          title={original ? `Nombre original: ${original}` : undefined}
+                          style={original ? { cursor: 'help', borderBottom: '1px dotted var(--text-secondary)' } : undefined}
+                        >
+                          {display}
+                        </span>
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
+                          {group.map((item, idx) => {
+                            const isMin = idx === group.length - 1 && group.length > 1
+                            return (
+                              <span key={item.id} style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '0.2rem',
                                 background: 'var(--bg-elevated)',
                                 border: `1px solid ${isMin ? 'var(--accent)' : 'var(--border)'}`,
-                                borderRadius: '4px',
-                                padding: '0.1rem 0.35rem',
-                                fontSize: '0.85rem',
+                                borderRadius: '4px', padding: '0.1rem 0.35rem', fontSize: '0.85rem',
                                 color: isMin ? 'var(--accent)' : 'inherit',
-                              }}
-                            >
-                              {item.my_price}
-                              <button
-                                className="btn btn--danger btn--sm"
-                                onClick={() => deleteItem(item.id)}
-                                style={{ padding: '0 0.2rem', minWidth: 'unset', fontSize: '0.7rem', lineHeight: 1 }}
-                              >
-                                ✕
-                              </button>
-                            </span>
-                          )
-                        })}
-                      </div>
-                    </td>
-
-                    {/* Divisa (del primer elemento; todos deberían ser iguales) */}
-                    <td><span className="badge">{representative.currency}</span></td>
-
-                    {/* Estado — calculado sobre el precio más bajo del grupo */}
-                    <td>{renderStatus(group)}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {items.length === 0 && (
-        <div className="empty-state">Añade ítems para empezar a monitorizar</div>
-      )}
+                              }}>
+                                {item.my_price}
+                                <button className="btn btn--danger btn--sm"
+                                  onClick={() => deleteItem(item.id)}
+                                  style={{ padding: '0 0.2rem', minWidth: 'unset', fontSize: '0.7rem', lineHeight: 1 }}>
+                                  ✕
+                                </button>
+                              </span>
+                            )
+                          })}
+                        </div>
+                      </td>
+                      <td><span className="badge">{representative.currency}</span></td>
+                      <td>{renderStatus(group)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

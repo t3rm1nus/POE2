@@ -50,7 +50,7 @@ export default function Tracker() {
   const [sortBy, setSortBy]       = useState('price_desc')
   const [search, setSearch]       = useState('')
   const [hideEmpty, setHideEmpty] = useState(false)
-
+  const [hideSupport, setHideSupport] = useState(false)
   // ─── Carga inicial ───────────────────────────────────────────────────────────
   useEffect(() => { loadCachedGems() }, [])
 
@@ -155,7 +155,9 @@ export default function Tracker() {
     if (hideEmpty) {
       list = list.filter(g => g.cheapest_price !== null)
     }
-
+    if (hideSupport) {
+      list = list.filter(g => g.category !== 'Soporte')
+    }
     if (search.trim()) {
       const s = search.toLowerCase()
       list = list.filter(g => {
@@ -195,7 +197,7 @@ export default function Tracker() {
     })
 
     return list
-  }, [gems, filterCat, sortBy, search, hideEmpty])
+  }, [gems, filterCat, sortBy, search, hideEmpty, hideSupport])
 
   const totalScanned     = Object.keys(gems).length
   const totalWithPrice   = Object.values(gems).filter(g => g.cheapest_price !== null).length
@@ -356,6 +358,15 @@ export default function Tracker() {
             />
             Solo con precio
           </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', color: 'var(--text-secondary)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          <input
+            type="checkbox"
+            checked={hideSupport}
+            onChange={e => setHideSupport(e.target.checked)}
+            style={{ cursor: 'pointer' }}
+          />
+          Ocultar soportes
+        </label>
         </div>
       </div>
 
