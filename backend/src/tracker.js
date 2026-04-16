@@ -235,8 +235,14 @@ router.get('/gems', (req, res) => {
 
   const pendingCount = GEMS.length - (meta?.total ?? 0);
 
-  res.json({ gems, meta, stale_count: staleCount, pending_count: pendingCount, total_gems: GEMS.length });
-});
+  res.json({
+    gems,
+    meta,
+    stale_count: staleCount,
+    pending_count: pendingCount,
+    total_gems: GEMS.length,
+    my_account: process.env.POE_ACCOUNT || '',   // ← AÑADIR ESTA LÍNEA
+  })});
 
 // ─── GET /api/tracker/scan — SSE ─────────────────────────────────────────────
 router.get('/scan', async (req, res) => {

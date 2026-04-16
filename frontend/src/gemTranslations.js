@@ -112,7 +112,7 @@ const GEM_TRANSLATIONS = {
   'Flame Breath':                'Aliento de llamas',
   'Lunar Blessing':              'Bendición lunar',
   'Walking Calamity':            'Calamidad andante',
-  'Savage Fury':                 'Furia feroz',
+  'Savage Fury':                 'Furia Salvaje',
   'Rolling Magma':               'Bola de Magma',
   'Falling Thunder':             'Trueno descendente',
   'Wing Blast':                  'Explosión de alas',

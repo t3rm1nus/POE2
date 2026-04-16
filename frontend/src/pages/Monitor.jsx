@@ -1,16 +1,11 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import GEM_TRANSLATIONS from '../gemTranslations'
-import { useMonitor, repetirUltimoAviso, formatCountdown } from '../MonitorContext'
+import { useMonitor } from '../MonitorContext'
 import { useLeague } from '../LeagueContext'
+import { POLL_OPTIONS, formatCountdown, repetirUltimoAviso } from '../monitorUtils'
 
 const CURRENCIES = ['chaos', 'divine', 'exalted', 'aug']
-const POLL_OPTIONS = [
-  { label: 'Desactivado', value: 0 },
-  { label: '5 min',       value: 5 * 60 },
-  { label: '10 min',      value: 10 * 60 },
-  { label: '30 min',      value: 30 * 60 },
-  { label: '1 Hora',      value: 60 * 60 },
-]
+
 
 export default function Monitor() {
   const { realm, league } = useLeague()

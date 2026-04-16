@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { analyzePrices } = require('../poeApiClient');
-
+const { GEMS }   = require('../tracker');  // ← añadir esta línea
 router.get('/items', (req, res) => {
   const items = db.prepare('SELECT * FROM monitor_items ORDER BY created_at DESC').all();
   res.json(items);
@@ -26,18 +26,29 @@ router.delete('/items/:id', (req, res) => {
 });
 
 router.get('/check', async (req, res) => {
-  // ⚠️ realm y league SIEMPRE desde query params — nunca usar defaults de poeApiClient
   const realm  = req.query.realm  || 'sony';
   const league = req.query.league || 'Standard';
 
-  console.log(`[monitor/check] realm=${realm} league=${league}`);
-
-  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Content-Type',  'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Connection',    'keep-alive');
+  // ✅ Evita que el proxy cierre la conexión por inactividad
+  res.setHeader('X-Accel-Buffering', 'no');
+
+  let closed = false
+  req.on('close', () => { 
+    closed = true
+    clearInterval(heartbeat)  // ← añadir esto
+  })
 
   const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+   // ✅ Heartbeat cada 15s para mantener viva la conexión SSE
+   const heartbeat = setInterval(() => {
+    if (!closed) res.write(': ping\n\n');
+  }, 15000);
 
+
+  
   const items = db.prepare('SELECT * FROM monitor_items ORDER BY created_at DESC').all();
 
   if (items.length === 0) {
@@ -146,39 +157,49 @@ router.get('/check', async (req, res) => {
       });
 
       // Si el precio de mercado es distinto al cacheado en gem_market_prices, actualizamos
-      if (marketMin !== null && cheapestOther) {
-        const cached = db.prepare(
-          'SELECT cheapest_price FROM gem_market_prices WHERE gem_type = ?'
-        ).get(type);
+      // ─── Actualizar caché Tracker ─────────────────────────────────────────────
+      // ─── Actualizar caché Tracker ──────────────────────────────────────────────
+      const gemInfo  = GEMS.find(g => g.type === type)
+      const cached   = db.prepare('SELECT category FROM gem_market_prices WHERE gem_type = ?').get(type)
+      const category = gemInfo?.cat ?? cached?.category ?? 'item'
 
-        if (!cached || cached.cheapest_price !== marketMin) {
-          const seller        = cheapestOther.listing.account.name ?? null;
-          const sellerOnline  = cheapestOther.listing.account.online ? 1 : 0;
-          const currency      = marketCurrency;
-          const indexed       = cheapestOther.listing.indexed ?? null;
-          const totalListings = marketTotal ?? 0;
+      // El precio real mínimo del mercado: si soy el más barato, es mi precio; si no, el del competidor
+      const trackerPrice    = isMinPrice ? myMinPrice : marketMin
+      const trackerCurrency = isMinPrice
+        ? (myListings[0]?.listing?.price?.currency ?? item.currency)
+        : marketCurrency
 
-          const existingRow = db.prepare(
-            'SELECT category FROM gem_market_prices WHERE gem_type = ?'
-          ).get(type);
-          const category = existingRow?.category ?? 'item';
+      if (trackerPrice !== null) {
+        let trackerSeller, trackerOnline, trackerIndexed
 
-          db.prepare(`
-            INSERT INTO gem_market_prices
-              (gem_type, category, cheapest_price, currency, seller, seller_online, indexed, total_listings, fetched_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-            ON CONFLICT(gem_type) DO UPDATE SET
-              cheapest_price = excluded.cheapest_price,
-              currency       = excluded.currency,
-              seller         = excluded.seller,
-              seller_online  = excluded.seller_online,
-              indexed        = excluded.indexed,
-              total_listings = excluded.total_listings,
-              fetched_at     = excluded.fetched_at
-          `).run(type, category, marketMin, currency, seller, sellerOnline, indexed, totalListings);
-
-          console.log(`[monitor/check] Caché Tracker actualizada: ${type} → ${marketMin} ${currency}`);
+        if (isMinPrice && myListings.length > 0) {
+          // Soy el más barato → usar mi propio listing
+          const myListing  = myListings.find(l => l.listing.price.amount === myMinPrice) ?? myListings[0]
+          trackerSeller    = myListing.listing.account.name ?? myAccount
+          trackerOnline    = 1
+          trackerIndexed   = myListing.listing.indexed ?? null
+        } else {
+          // Hay alguien más barato → usar cheapestOther
+          trackerSeller    = cheapestOther?.listing?.account?.name ?? null
+          trackerOnline    = cheapestOther?.listing?.account?.online ? 1 : 0
+          trackerIndexed   = cheapestOther?.listing?.indexed ?? null
         }
+
+        db.prepare(`
+          INSERT INTO gem_market_prices
+            (gem_type, category, cheapest_price, currency, seller, seller_online, indexed, total_listings, fetched_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          ON CONFLICT(gem_type) DO UPDATE SET
+            cheapest_price = excluded.cheapest_price,
+            currency       = excluded.currency,
+            seller         = excluded.seller,
+            seller_online  = excluded.seller_online,
+            indexed        = excluded.indexed,
+            total_listings = excluded.total_listings,
+            fetched_at     = excluded.fetched_at
+        `).run(type, category, trackerPrice, trackerCurrency, trackerSeller, trackerOnline, trackerIndexed, marketTotal ?? 0)
+
+        console.log(`[monitor/check] Tracker actualizado: ${type} → ${trackerPrice} ${trackerCurrency} (${isMinPrice ? 'soy el más barato' : 'hay más baratos'})`)
       }
 
     } catch (err) {
@@ -187,8 +208,9 @@ router.get('/check', async (req, res) => {
     }
   }
 
-  send({ status: 'done', results });
-  res.end();
+  clearInterval(heartbeat)    // ← añadir esto
+  send({ status: 'done', results })
+  res.end()
 });
 
 module.exports = router;

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import GEM_TRANSLATIONS from '../gemTranslations'
 import { useLeague } from '../LeagueContext'
 const CATEGORIES = ['Todas', 'Arco', 'Bastón', 'Ocultismo', 'Primalismo', 'Maza', 'Ballesta', 'Lanza', 'Heraldo', 'Soporte']
@@ -39,7 +39,7 @@ export default function Tracker() {
   const [staleCount, setStaleCount]   = useState(0)
   const [pendingCount, setPendingCount] = useState(0)
   const [totalGems, setTotalGems] = useState(0)
-
+  const [myAccount, setMyAccount] = useState('')
   // ─── Scan ────────────────────────────────────────────────────────────────────
   const [scanning, setScanning]         = useState(false)
   const [scanProgress, setScanProgress] = useState(null)  // { message, progress, total }
@@ -53,9 +53,9 @@ export default function Tracker() {
   const [hideEmpty, setHideEmpty] = useState(false)
   const [hideSupport, setHideSupport] = useState(false)
   // ─── Carga inicial ───────────────────────────────────────────────────────────
-  useEffect(() => { loadCachedGems() }, [realm, league])
-
-  async function loadCachedGems() {
+  
+  
+  const loadCachedGems = useCallback(async () => {
     try {
       const res = await fetch(`/api/tracker/gems?realm=${realm}&league=${encodeURIComponent(league)}`)
       const data = await res.json()
@@ -66,10 +66,18 @@ export default function Tracker() {
       setStaleCount(data.stale_count   ?? 0)
       setPendingCount(data.pending_count ?? 0)
       setTotalGems(data.total_gems      ?? 0)
+      if (data.my_account) setMyAccount(data.my_account)
     } catch (err) {
       console.error('Error cargando caché de gemas:', err)
     }
-  }
+  }, [realm, league])  // ← deps correctas
+
+  useEffect(() => { loadCachedGems() }, [loadCachedGems])
+
+  useEffect(() => {
+    window.addEventListener('monitor:check-done', loadCachedGems)
+    return () => window.removeEventListener('monitor:check-done', loadCachedGems)
+  }, [loadCachedGems])   // ← esto garantiza que siempre usa la versión fresca
 
   // ─── Iniciar escaneo ─────────────────────────────────────────────────────────
   function startScan(force = false) {
@@ -467,10 +475,19 @@ export default function Tracker() {
                         <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                           <span style={{
                             width: '7px', height: '7px', borderRadius: '50%', flexShrink: 0,
-                            background: gem.seller_online ? '#22c55e' : '#4b5563',
-                            boxShadow:  gem.seller_online ? '0 0 5px #22c55e88' : 'none',
+                            // ← Verde siempre si es tu cuenta, verde si online, gris si offline
+                            background: gem.seller === myAccount ? '#22c55e'
+                                      : gem.seller_online        ? '#22c55e' : '#4b5563',
+                            boxShadow:  gem.seller === myAccount ? '0 0 5px #22c55e88'
+                                      : gem.seller_online        ? '0 0 5px #22c55e88' : 'none',
                           }} />
-                          {gem.seller}
+                          <span style={{
+                            // ← Tu cuenta en color acento para distinguirla
+                            color: gem.seller === myAccount ? 'var(--accent)' : 'inherit',
+                            fontWeight: gem.seller === myAccount ? 600 : 400,
+                          }}>
+                            {gem.seller}
+                          </span>
                         </span>
                       ) : '—'}
                     </td>

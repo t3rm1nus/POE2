@@ -1,42 +1,15 @@
+// ✅ Así deben quedar las primeras líneas del archivo
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
 import GEM_TRANSLATIONS from './gemTranslations'
 import { useLeague } from './LeagueContext'
-const MonitorContext = createContext(null)
+import { POLL_OPTIONS, formatCountdown, hablar, repetirUltimoAviso } from './monitorUtils'
 
-// ─── Síntesis de voz ────────────────────────────────────────────────────────
-let _lastSpokenText = ''
+const MonitorContext = createContext(null) 
 
-function hablar(texto) {
-  if (!window.speechSynthesis) return
-  _lastSpokenText = texto
-  window.speechSynthesis.cancel()
-  const msg = new SpeechSynthesisUtterance(texto)
-  msg.lang = 'es-ES'
-  msg.rate = 1.1
-  msg.volume = 1
-  const voces = window.speechSynthesis.getVoices()
-  const vozEs = voces.find(v => v.lang.startsWith('es') && v.localService)
-    || voces.find(v => v.lang.startsWith('es'))
-  if (vozEs) msg.voice = vozEs
-  window.speechSynthesis.speak(msg)
-}
 
-export function repetirUltimoAviso() {
-  if (_lastSpokenText) hablar(_lastSpokenText)
-}
 
-export function formatCountdown(seconds) {
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return `${m}:${String(s).padStart(2, '0')}`
-}
 
-export const POLL_OPTIONS = [
-  { label: 'Desactivado', value: 0 },
-  { label: '5 min',       value: 5  * 60 },
-  { label: '10 min',      value: 10 * 60 },
-  { label: '30 min',      value: 30 * 60 },
-]
+
 
 // ─── Provider ────────────────────────────────────────────────────────────────
 export function MonitorProvider({ children }) {
@@ -173,6 +146,7 @@ export function MonitorProvider({ children }) {
         loadingRef.current = false
         setCheckProgress(null)
         procesarResultados(data.results, esAutomatico, itemsRef.current)
+        window.dispatchEvent(new CustomEvent('monitor:check-done'))  // ← debe estar aquí
       }
 
       if (data.error) {
