@@ -113,7 +113,7 @@ const GEM_TRANSLATIONS = {
   'Lunar Blessing':              'Bendición lunar',
   'Walking Calamity':            'Calamidad andante',
   'Savage Fury':                 'Furia feroz',
-  'Rolling Magma':               'Magma rodante',
+  'Rolling Magma':               'Bola de Magma',
   'Falling Thunder':             'Trueno descendente',
   'Wing Blast':                  'Explosión de alas',
   'Ferocious Roar':              'Rugido feroz',
@@ -269,7 +269,55 @@ const GEM_TRANSLATIONS = {
   'Thorn Trail':                 'Rastro de abrojos',
   'Rhoa Mount':                  'Montura de rhoa',
   'Phantom Archer':              'Arquero ilusorio',
+  'Iron Ward':                   'Barrera de Hierro',
 
+
+  // ══════════════════════════════════════════════════════════════════════
+  // PATCH gemTranslations.js — Añadir ANTES del "export default GEM_TRANSLATIONS;"
+  // ══════════════════════════════════════════════════════════════════════
+
+  // ════════════════════════════════════════════════════════
+  // HERALDOS — nuevos (capturas Arco img7)
+  // ════════════════════════════════════════════════════════
+  'Herald of Plague':              'Heraldo de plaga',
+
+  // ════════════════════════════════════════════════════════
+  // ARCO — nuevas (capturas img7)
+  // ════════════════════════════════════════════════════════
+  'Plague Bearer':                 'Portador de plaga',
+  'Alchemist\'s Blessing':         'Bendición del alquimista',
+  'Poisonburst Arrow':             'Flecha de estallido venenoso',  // nombre real API (≈ Caustic Arrow)
+
+  // ════════════════════════════════════════════════════════
+  // MAZA — nuevo
+  // ════════════════════════════════════════════════════════
+  'Earthshatter':                  'Destrozatierra',
+
+  // ════════════════════════════════════════════════════════
+  // LANZA — nuevo
+  // ════════════════════════════════════════════════════════
+  'Glacial Lance':                 'Lanza glacial',                 // distinto de Glacial Thrust
+
+  // ════════════════════════════════════════════════════════
+  // BASTÓN — nuevo
+  // ════════════════════════════════════════════════════════
+  'Impending Doom':                'Fatalidad inminente',
+
+  // ════════════════════════════════════════════════════════
+  // SOPORTES — nombres reales de la API que no coincidían
+  // con las claves del diccionario (aparecían en inglés
+  // en el Tracker porque el type devuelto es distinto)
+  // ════════════════════════════════════════════════════════
+  'Ravenous Swarm':                'Enjambre voraz',          // API usa este, no 'Devouring Swarm'
+  'Scavenged Plating':             'Placas saqueadas',        // API usa este, no 'Plundered Plates'
+  'Siphon Elements':               'Drenaje de elementos',   // API usa este, no 'Element Drain'
+  'Time of Need':                  'Momento de necesidad',   // API usa este, no 'Moment of Need'
+  'Cast on Dodge':                 'Lanzar al esquivar rodando', // forma corta de 'Cast on Dodge Roll'
+  'Feral Invocation':              'Invocación feral',
+  'Eternal Rage':                  'Furia eterna',            // API usa este, no 'Eternal Fury'
+  'Shard Scavenger':               'Recolector de esquirlas', // API usa este, no 'Shard Collector'
+  'Trail of Caltrops':             'Rastro de abrojos',       // API usa este, no 'Thorn Trail'
+  'Lingering Illusion':            'Ilusión persistente',     // API usa este, no 'Persistent Illusion'
 };
 
 

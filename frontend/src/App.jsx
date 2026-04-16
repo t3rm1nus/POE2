@@ -2,15 +2,60 @@ import { useState } from 'react'
 import Monitor from './pages/Monitor'
 import Tracker from './pages/Tracker'
 import Ranking from './pages/Ranking'
-
+import { LeagueProvider, REALMS, LEAGUES, useLeague } from './LeagueContext'
+import { MonitorProvider } from './MonitorContext'
+import './App.css'
 const NAV = [
-  { id: 'monitor', label: 'Monitor de Precio', icon: '🔔' },
+  { id: 'monitor', label: 'Monitor de Precio',  icon: '🔔' },
   { id: 'tracker', label: 'Historial de Precios', icon: '📈' },
   { id: 'ranking', label: 'Ranking del Mercado', icon: '🏆' },
 ]
 
-export default function App() {
+function SidebarSettings() {
+  const { realm, league, setRealm, setLeague } = useLeague()
+
+  return (
+    <div className="sidebar-settings">
+      {/* Realm */}
+      <div className="settings-group">
+        <label className="settings-label">Plataforma</label>
+        <select
+          className="input input--short"
+          value={realm}
+          onChange={e => setRealm(e.target.value)}
+          style={{ width: '100%' }}
+        >
+          {REALMS.map(r => (
+            <option key={r.value} value={r.value}>{r.label}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Liga */}
+      <div className="settings-group">
+        <label className="settings-label">Liga</label>
+        <div className="radio-group">
+          {LEAGUES.map(l => (
+            <label key={l.value} className="radio-item">
+              <input
+                type="radio"
+                name="league"
+                value={l.value}
+                checked={league === l.value}
+                onChange={() => setLeague(l.value)}
+              />
+              <span>{l.label}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AppShell() {
   const [active, setActive] = useState('monitor')
+  const { realm, league }   = useLeague()
 
   return (
     <div className="app-shell">
@@ -19,7 +64,7 @@ export default function App() {
           <span className="sidebar-logo">⚗️</span>
           <div>
             <div className="sidebar-title">PoE2 Market</div>
-            <div className="sidebar-sub">Standard League</div>
+            <div className="sidebar-sub">{league} · {realm.toUpperCase()}</div>
           </div>
         </div>
 
@@ -36,6 +81,8 @@ export default function App() {
           ))}
         </nav>
 
+        <SidebarSettings />
+
         <div className="sidebar-footer">
           <span className="status-dot" />
           Backend conectado
@@ -48,5 +95,15 @@ export default function App() {
         {active === 'ranking' && <Ranking />}
       </main>
     </div>
+  )
+}
+
+export default function App() {
+  return (
+    <LeagueProvider>        {/* 1º */}
+      <MonitorProvider>     {/* 2º — ya puede usar useLeague() */}
+        <AppShell />
+      </MonitorProvider>
+    </LeagueProvider>
   )
 }

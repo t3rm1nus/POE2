@@ -1,0 +1,46 @@
+.sidebar {
+    display: flex;
+    flex-direction: column;
+    /* height o min-height necesario para que margin-top: auto funcione */
+    height: 100vh; /* o min-height: 100% dependiendo de tu layout */
+  }
+
+.sidebar-settings {
+    padding: 0 1rem;
+    margin-top: auto;
+    border-top: 1px solid var(--border);
+    padding-top: 1rem;
+  }
+  
+  .settings-group {
+    margin-bottom: 1rem;
+  }
+  
+  .settings-label {
+    display: block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+    margin-bottom: 0.4rem;
+  }
+  
+  .radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  
+  .radio-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.82rem;
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+  
+  .radio-item input[type="radio"] {
+    accent-color: var(--accent);
+    cursor: pointer;
+  }

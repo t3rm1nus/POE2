@@ -6,8 +6,6 @@ import { MonitorProvider } from './MonitorContext'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <MonitorProvider>
-      <App />
-    </MonitorProvider>
-  </StrictMode>,
+    <App />
+  </StrictMode>
 )

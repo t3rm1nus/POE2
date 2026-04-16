@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
 import GEM_TRANSLATIONS from './gemTranslations'
-
+import { useLeague } from './LeagueContext'
 const MonitorContext = createContext(null)
 
 // ─── Síntesis de voz ────────────────────────────────────────────────────────
@@ -143,7 +143,11 @@ export function MonitorProvider({ children }) {
       })
     }
   }
-
+  const { realm, league } = useLeague()
+  const realmRef  = useRef(realm)
+  const leagueRef = useRef(league)
+  useEffect(() => { realmRef.current  = realm  }, [realm])
+  useEffect(() => { leagueRef.current = league }, [league])
   // ─── checkPrices ──────────────────────────────────────────────────────────
   const checkPrices = useCallback((esAutomatico = false) => {
     if (loadingRef.current) return
@@ -153,7 +157,9 @@ export function MonitorProvider({ children }) {
     setCheckProgress({ message: 'Iniciando...', progress: 0, total: 0 })
     isAutoCheckRef.current = esAutomatico
 
-    const evtSource = new EventSource('/api/monitor/check')
+    const evtSource = new EventSource(
+      `/api/monitor/check?realm=${realmRef.current}&league=${encodeURIComponent(leagueRef.current)}`
+    )
 
     evtSource.onmessage = (e) => {
       const data = JSON.parse(e.data)
@@ -236,3 +242,4 @@ export function useMonitor() {
   if (!ctx) throw new Error('useMonitor debe usarse dentro de MonitorProvider')
   return ctx
 }
+

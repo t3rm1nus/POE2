@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import GEM_TRANSLATIONS from '../gemTranslations'
-
+import { useLeague } from '../LeagueContext'
 const CATEGORIES = ['Todas', 'Arco', 'Bastón', 'Ocultismo', 'Primalismo', 'Maza', 'Ballesta', 'Lanza', 'Heraldo', 'Soporte']
 
 const CAT_COLORS = {
@@ -31,6 +31,7 @@ function isStaleDate(dateStr, maxHours = 24) {
 }
 
 export default function Tracker() {
+  const { realm, league } = useLeague()
   // ─── Estado principal ────────────────────────────────────────────────────────
   // gems es un Map gem_type → objeto con los datos
   const [gems, setGems]           = useState({})
@@ -52,11 +53,11 @@ export default function Tracker() {
   const [hideEmpty, setHideEmpty] = useState(false)
   const [hideSupport, setHideSupport] = useState(false)
   // ─── Carga inicial ───────────────────────────────────────────────────────────
-  useEffect(() => { loadCachedGems() }, [])
+  useEffect(() => { loadCachedGems() }, [realm, league])
 
   async function loadCachedGems() {
     try {
-      const res  = await fetch('/api/tracker/gems')
+      const res = await fetch(`/api/tracker/gems?realm=${realm}&league=${encodeURIComponent(league)}`)
       const data = await res.json()
       const map  = {}
       for (const g of data.gems) map[g.gem_type] = g
@@ -77,7 +78,8 @@ export default function Tracker() {
     setCurrentGem(null)
     setScanProgress({ message: 'Conectando...', progress: 0, total: 0 })
 
-    const evtSource = new EventSource(`/api/tracker/scan${force ? '?force=true' : ''}`)
+    const params = new URLSearchParams({ realm, league, ...(force ? { force: 'true' } : {}) })
+    const evtSource = new EventSource(`/api/tracker/scan?${params}`)
     evtSourceRef.current = evtSource
 
     evtSource.onmessage = (e) => {
@@ -142,6 +144,15 @@ export default function Tracker() {
     setScanning(false)
     setScanProgress(null)
     setCurrentGem(null)
+  }
+
+  async function clearAllGems() {
+    if (!confirm('¿Borrar todos los datos del mercado de gemas?\nTendrás que volver a escanear desde cero.')) return
+    await fetch('/api/tracker/gems', { method: 'DELETE' })
+    setGems({})
+    setMeta(null)
+    setStaleCount(0)
+    setPendingCount(0)
   }
 
   // ─── Lista derivada ──────────────────────────────────────────────────────────
@@ -247,6 +258,11 @@ export default function Tracker() {
           {scanning && (
             <button className="btn btn--danger" onClick={stopScan}>
               ✕ Detener
+            </button>            
+          )}
+          {!scanning && totalScanned > 0 && (
+            <button className="btn btn--danger" onClick={clearAllGems}>
+              🗑️ Borrar caché
             </button>
           )}
         </div>

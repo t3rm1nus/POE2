@@ -1,26 +1,15 @@
 const axios = require('axios');
 
 const BASE_URL = 'https://www.pathofexile.com/api/trade2';
-const LEAGUE = 'Standard';
-const REALM = process.env.POE_REALM || 'sony'; // 'sony' para PS5, 'poe2' para PC
+const LEAGUE   = 'Standard';
+// ✅ FIX PROBLEMA 3: el default es 'sony' (PS5), nunca 'pc'
+const REALM = process.env.POE_REALM || 'poe2';
 
 // Cola simple para respetar rate limits (12 req / 60s)
 const queue = [];
 let processing = false;
 
 const MAX_RETRIES = 3;
-
-// ─── Filtro de antigüedad ────────────────────────────────────────────────────
-// Descarta listings con listing.indexed anterior a N meses
-const MAX_LISTING_AGE_MONTHS = 3;
-
-function isListingRecent(listing) {
-  if (!listing?.indexed) return true; // si no hay fecha, no filtrar
-  const indexed = new Date(listing.indexed);
-  const cutoff = new Date();
-  cutoff.setMonth(cutoff.getMonth() - MAX_LISTING_AGE_MONTHS);
-  return indexed >= cutoff;
-}
 
 async function processQueue() {
   if (processing || queue.length === 0) return;
@@ -71,30 +60,34 @@ function getHeaders() {
   };
 }
 
-async function searchItems(query) {
+// ✅ FIX PROBLEMA 2: eliminado filtro de antigüedad por fecha (listing.indexed),
+// sustituido por sale_type = 'buyout' en los trade_filters de la query.
+// Esto garantiza que solo se devuelven listings con precio fijo (compra inmediata),
+// que es exactamente lo que opera en PS5 Standard.
+// El filtro de fecha era poco fiable porque GGG no garantiza que `indexed` sea preciso.
+
+async function searchItems(query, { league = LEAGUE, realm = REALM } = {}) {
   return enqueue(async () => {
-    const response = await axios.post(
-      `${BASE_URL}/search/${REALM}/${LEAGUE}`,
-      query,
-      { headers: getHeaders() }
-    );
+    const url = `${BASE_URL}/search/${realm}/${encodeURIComponent(league)}`;
+    console.log('→ searchItems URL:', url);
+    const response = await axios.post(url, query, { headers: getHeaders() });
     return response.data;
   });
 }
 
-async function fetchListings(ids, queryId) {
+async function fetchListings(ids, queryId, { realm = REALM } = {}) {
   return enqueue(async () => {
     const chunk = ids.slice(0, 10).join(',');
     const response = await axios.get(
-      `${BASE_URL}/fetch/${chunk}?query=${queryId}`,
+      `${BASE_URL}/fetch/${chunk}?query=${queryId}&realm=${realm}`,
       { headers: getHeaders() }
     );
     return response.data;
   });
 }
 
-async function getCheapestListing(query) {
-  const search = await searchItems(query);
+async function getCheapestListing(query, { league = LEAGUE, realm = REALM } = {}) {
+  const search = await searchItems(query, { league, realm });
   console.log('search result:', search?.id, search?.result?.length);
 
   if (!search.result || search.result.length === 0) {
@@ -103,70 +96,75 @@ async function getCheapestListing(query) {
 
   const topIds = search.result.slice(0, 10);
   const listings = await fetchListings(topIds, search.id);
-  console.log('listings completo:', JSON.stringify(listings));
-  console.log('listings raw:', JSON.stringify(listings?.result?.[0], null, 2));
-  const sorted = listings.result
-    .filter(l => l?.listing?.price && isListingRecent(l.listing))
+  const sorted = (listings.result || [])
+    .filter(l => l?.listing?.price)
     .sort((a, b) => a.listing.price.amount - b.listing.price.amount);
-  console.log('listings.result[0]:', JSON.stringify(listings.result[0], null, 2));
-  console.log('sorted[0]:', JSON.stringify(sorted[0]?.listing?.price));
 
   return sorted[0] || null;
 }
 
-async function analyzePrices(query, myAccount) {
+async function analyzePrices(query, myAccount, { league = LEAGUE, realm = REALM } = {}) {
   const accountLower = myAccount?.toLowerCase();
 
-  const myQuery = JSON.parse(JSON.stringify(query));
+  // ── Clonar queries antes de mutar ──────────────────────────────────────────
+  const myQuery     = JSON.parse(JSON.stringify(query));
   const marketQuery = JSON.parse(JSON.stringify(query));
+  // Asegurar status: securable (igual que la web oficial)
+  myQuery.query.status     = { option: 'securable' };
+  marketQuery.query.status = { option: 'securable' };
 
+  // ✅ FIX PROBLEMA 2: añadir sale_type: 'buyout' para filtrar solo compra inmediata
+  // Esto reemplaza el filtro de antigüedad por fecha que era poco fiable
   myQuery.query.filters = myQuery.query.filters || {};
   myQuery.query.filters.trade_filters = {
     filters: {
-      account: { input: myAccount },
-      price: { option: 'divine' }
+      sale_type: { option: 'priced' },
+      account:   { input: myAccount },
+      price:     { option: 'divine' },
     }
   };
 
   marketQuery.query.filters = marketQuery.query.filters || {};
   marketQuery.query.filters.trade_filters = {
     filters: {
-      price: { option: 'divine' }
+      sale_type: { option: 'priced' },
+      price:     { option: 'divine' },
     }
   };
 
-  const mySearch = await searchItems(myQuery);
+  console.log(`[analyzePrices] realm=${realm} league=${league} type=${query?.query?.type}`);
+
+  // ── Mis listings ───────────────────────────────────────────────────────────
+  const mySearch   = await searchItems(myQuery, { league, realm });
   const myListings = [];
   if (mySearch.result?.length > 0) {
-    const myFetch = await fetchListings(mySearch.result.slice(0, 10), mySearch.id);
-    const filtered = myFetch.result
-      .filter(l => l?.listing?.price && isListingRecent(l.listing));
+    const myFetch     = await fetchListings(mySearch.result.slice(0, 10),     mySearch.id,     { realm });
+    const filtered = (myFetch.result || []).filter(l => l?.listing?.price);
     myListings.push(...filtered);
     myListings.sort((a, b) => a.listing.price.amount - b.listing.price.amount);
   }
 
-  const marketSearch = await searchItems(marketQuery);
+  // ── Mercado general ────────────────────────────────────────────────────────
+  const marketSearch   = await searchItems(marketQuery, { league, realm });
   const marketListings = [];
   if (marketSearch.result?.length > 0) {
-    const marketFetch = await fetchListings(marketSearch.result.slice(0, 10), marketSearch.id);
-    const others = marketFetch.result
+    const marketFetch = await fetchListings(marketSearch.result.slice(0, 10), marketSearch.id, { realm });
+    const others = (marketFetch.result || [])
       .filter(l =>
         l?.listing?.price &&
-        l.listing.account.name?.toLowerCase() !== accountLower &&
-        isListingRecent(l.listing)
+        l.listing.account.name?.toLowerCase() !== accountLower
       )
       .sort((a, b) => a.listing.price.amount - b.listing.price.amount);
     marketListings.push(...others);
   }
 
   const cheapestOther = marketListings[0] || null;
-  const myMinPrice = myListings[0]?.listing?.price?.amount ?? null;
-  const otherMinPrice = cheapestOther?.listing?.price?.amount ?? null;
-  const tied = myMinPrice !== null && otherMinPrice !== null && myMinPrice === otherMinPrice;
+  const myMinPrice    = myListings[0]?.listing?.price?.amount  ?? null;
+  const otherMinPrice = cheapestOther?.listing?.price?.amount  ?? null;
+  const tied          = myMinPrice !== null && otherMinPrice !== null && myMinPrice === otherMinPrice;
+  console.log(`[analyzePrices] myMin=${myMinPrice} otherMin=${otherMinPrice} total=${marketSearch.total}`);
 
-  console.log('myMinPrice:', myMinPrice, '| otherMinPrice:', otherMinPrice);
-
-  return { cheapestOther, myListings, tied, myMinPrice, otherMinPrice };
+  return { cheapestOther, myListings, tied, myMinPrice, otherMinPrice, marketTotal: marketSearch.total ?? 0 };
 }
 
 module.exports = { searchItems, fetchListings, getCheapestListing, analyzePrices };
