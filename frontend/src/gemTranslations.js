@@ -10,7 +10,7 @@ const GEM_TRANSLATIONS = {
   'Rain of Arrows':              'Lluvia de flechas',
   'Vine Arrow':                  'Flecha de enredaderas',
   'Spiral Volley':               'Salva espiralada',
-  'Electrocuting Arrow':         'Flecha de cadena electrocutante',
+  'Electrocuting Arrow':         'Flecha paralizante',
   'Freezing Salvo':              'Salva congelante',
   'Snipe':                       'Disparo certero',
   'Ice-Tipped Arrows':           'Flechas de punta helada',
@@ -82,8 +82,8 @@ const GEM_TRANSLATIONS = {
   'Skeletal Cleric':             'Clérigo esqueleto',
   'Soul Offering':               'Ofrenda de almas',
   'Hexblast':                    'Explosión maldita',
-  'Bind Spectre':                'Atar espectro',
-  'Skeletal Sniper':             'Francotirador esqueleto',
+  'Bind Spectre':                'Vincular espectro',
+  'Skeletal Sniper':             'Tirador esqueleto',
   'Skeletal Arsonist':           'Incendiario esqueleto',
   'Skeletal Reaver':             'Asolador esqueleto',
 
@@ -114,8 +114,8 @@ const GEM_TRANSLATIONS = {
   'Walking Calamity':            'Calamidad andante',
   'Savage Fury':                 'Furia Salvaje',
   'Rolling Magma':               'Bola de Magma',
-  'Falling Thunder':             'Trueno descendente',
-  'Wing Blast':                  'Explosión de alas',
+  'Falling Thunder':             'Rayo atronador',
+  'Wing Blast':                  'Explosión alada',
   'Ferocious Roar':              'Rugido feroz',
   'Shockwave Totem':             'Tótem de onda expansiva',
   'Cross Slash':                 'Tajo cruzado',
@@ -147,7 +147,7 @@ const GEM_TRANSLATIONS = {
   'Hammer of the Gods':          'Martillo de los dioses',
   'Ancestral Cry':               'Grito ancestral',
   'Furious Slam':                'Embate furioso',   // ← AÑADIDO
-  'Shield Wall':                 'Muro de escudos',  // ← AÑADIDO
+  'Shield Wall':                 'Muro protector',  // ← AÑADIDO
 
   // ════════════════════════════════════════════════════════
   // BALLESTA (Crossbow / Mercenary) — confirmado en capturas

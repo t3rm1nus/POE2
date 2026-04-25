@@ -3,9 +3,6 @@ const router = express.Router();
 const db = require('./db');
 const { searchItems, fetchListings } = require('./poeApiClient');
 
-// ✅ FIX PROBLEMA 2: eliminado MAX_LISTING_AGE_MONTHS y la función isListingRecent()
-// basada en fecha. El filtro de compra inmediata (sale_type: 'priced') se aplica
-// directamente en la query a la API, que es la forma correcta y oficial.
 const CACHE_MAX_AGE_HOURS = 24;
 
 // ─── Lista maestra de gemas con categoría ────────────────────────────────────
@@ -52,7 +49,7 @@ const GEMS = [
     { type: 'Shattering Palm',         cat: 'Bastón' },
     { type: 'Thunderstorm',            cat: 'Bastón' },
     { type: 'Snap',                    cat: 'Bastón' },
-    { type: 'Impending Doom',          cat: 'Bastón' },
+    { type: 'Falling Thunder',         cat: 'Bastón' },
     // Ocultismo
     { type: 'Skeletal Sniper',         cat: 'Ocultismo' },
     { type: 'Unearth',                 cat: 'Ocultismo' },
@@ -79,13 +76,11 @@ const GEMS = [
     { type: 'Soul Offering',           cat: 'Ocultismo' },
     // Primalismo
     { type: 'Volcano',                 cat: 'Primalismo' },
-    { type: 'Savage Fury',             cat: 'Primalismo' },
     { type: 'Entangle',                cat: 'Primalismo' },
     { type: 'Lunar Assault',           cat: 'Primalismo' },
     { type: 'Shockwave Totem',         cat: 'Primalismo' },
     { type: 'Rolling Magma',           cat: 'Primalismo' },
     { type: 'Wing Blast',              cat: 'Primalismo' },
-    { type: 'Falling Thunder',         cat: 'Primalismo' },
     { type: 'Ferocious Roar',          cat: 'Primalismo' },
     { type: 'Devour',                  cat: 'Primalismo' },
     { type: 'Arctic Howl',             cat: 'Primalismo' },
@@ -97,6 +92,7 @@ const GEMS = [
     { type: 'Flame Breath',            cat: 'Primalismo' },
     { type: 'Lunar Blessing',          cat: 'Primalismo' },
     { type: 'Walking Calamity',        cat: 'Primalismo' },
+    { type: 'Furious Slam',            cat: 'Primalismo' },
     // Maza
     { type: 'Earthquake',              cat: 'Maza' },
     { type: 'Boneshatter',             cat: 'Maza' },
@@ -122,7 +118,6 @@ const GEMS = [
     // Ballesta
     { type: 'Fragmentation Rounds',    cat: 'Ballesta' },
     { type: 'Armour Piercing Rounds',  cat: 'Ballesta' },
-    { type: 'Permafrost Bolts',        cat: 'Ballesta' },
     { type: 'Explosive Grenade',       cat: 'Ballesta' },
     { type: 'High Velocity Rounds',    cat: 'Ballesta' },
     { type: 'Incendiary Shot',         cat: 'Ballesta' },
@@ -163,14 +158,15 @@ const GEMS = [
     { type: 'Elemental Sundering',     cat: 'Lanza' },
     { type: "Wind Serpent's Fury",     cat: 'Lanza' },
     { type: 'Spear of Solaris',        cat: 'Lanza' },
-    // Heraldo
-    { type: 'Herald of Blood',         cat: 'Heraldo' },
-    { type: 'Herald of Ice',           cat: 'Heraldo' },
-    { type: 'Herald of Thunder',       cat: 'Heraldo' },
-    { type: 'Herald of Ash',           cat: 'Heraldo' },
+    // Heraldo (categoría Soporte)
+    { type: 'Herald of Blood',         cat: 'Soporte' },
+    { type: 'Herald of Ice',           cat: 'Soporte' },
+    { type: 'Herald of Thunder',       cat: 'Soporte' },
+    { type: 'Herald of Ash',           cat: 'Soporte' },
     // Soporte
     { type: 'Trinity',                 cat: 'Soporte' },
     { type: 'Archmage',                cat: 'Soporte' },
+    { type: 'Savage Fury',             cat: 'Soporte' },
     { type: 'Blasphemy',               cat: 'Soporte' },
     { type: 'Arctic Armour',           cat: 'Soporte' },
     { type: 'Mirage Archer',           cat: 'Soporte' },
@@ -213,15 +209,19 @@ const GEMS = [
     { type: 'Rhoa Mount',              cat: 'Soporte' },
 ];
 
-// ─── GET /api/tracker/gems — datos en caché ──────────────────────────────────
+// ─── GET /api/tracker/gems ────────────────────────────────────────────────────
 router.get('/gems', (req, res) => {
+  const realm  = req.query.realm  || 'pc';
+  const league = req.query.league || 'Standard';
+
   const gems = db.prepare(
-    'SELECT * FROM gem_market_prices ORDER BY cheapest_price DESC'
-  ).all();
+    'SELECT * FROM gem_market_prices WHERE realm=? AND league=? ORDER BY cheapest_price DESC'
+  ).all(realm, league);
 
   const meta = db.prepare(
-    "SELECT MIN(fetched_at) as oldest, MAX(fetched_at) as newest, COUNT(*) as total FROM gem_market_prices"
-  ).get();
+    `SELECT MIN(fetched_at) as oldest, MAX(fetched_at) as newest, COUNT(*) as total
+     FROM gem_market_prices WHERE realm=? AND league=?`
+  ).get(realm, league);
 
   const cutoffStr = (() => {
     const d = new Date();
@@ -230,23 +230,26 @@ router.get('/gems', (req, res) => {
   })();
 
   const staleCount = db.prepare(
-    "SELECT COUNT(*) as n FROM gem_market_prices WHERE fetched_at < ?"
-  ).get(cutoffStr)?.n ?? 0;
+    `SELECT COUNT(*) as n FROM gem_market_prices
+     WHERE realm=? AND league=? AND fetched_at < ?`
+  ).get(realm, league, cutoffStr)?.n ?? 0;
 
-  const pendingCount = GEMS.length - (meta?.total ?? 0);
+  const scannedCount = meta?.total ?? 0;
+  const pendingCount = GEMS.length - scannedCount;
 
   res.json({
     gems,
     meta,
-    stale_count: staleCount,
+    stale_count:   staleCount,
     pending_count: pendingCount,
-    total_gems: GEMS.length,
-    my_account: process.env.POE_ACCOUNT || '',   // ← AÑADIR ESTA LÍNEA
-  })});
+    total_gems:    GEMS.length,
+    my_account:    process.env.POE_ACCOUNT || '',
+  });
+});
 
 // ─── GET /api/tracker/scan — SSE ─────────────────────────────────────────────
 router.get('/scan', async (req, res) => {
-  const realm  = req.query.realm  || 'sony';
+  const realm  = req.query.realm  || 'pc';
   const league = req.query.league || 'Standard';
   const force  = req.query.force === 'true';
 
@@ -269,8 +272,9 @@ router.get('/scan', async (req, res) => {
     })();
 
     const fresh = db.prepare(
-      "SELECT gem_type FROM gem_market_prices WHERE fetched_at > ?"
-    ).all(cutoffStr);
+      `SELECT gem_type FROM gem_market_prices
+       WHERE realm=? AND league=? AND fetched_at > ?`
+    ).all(realm, league, cutoffStr);
     const freshSet = new Set(fresh.map(r => r.gem_type));
     gemsToScan = GEMS.filter(g => !freshSet.has(g.type));
   }
@@ -293,7 +297,6 @@ router.get('/scan', async (req, res) => {
     try {
       send({ status: 'scanning', gem_type: gem.type, category: gem.cat, progress: done, total: gemsToScan.length });
 
-      // ✅ FIX PROBLEMA 2: sale_type 'priced' en lugar del filtro de fecha isListingRecent()
       const query = {
         query: {
           type: gem.type,
@@ -307,7 +310,7 @@ router.get('/scan', async (req, res) => {
             trade_filters: {
               filters: {
                 price:     { option: 'divine' },
-                sale_type: { option: 'priced' },   // ← solo compra inmediata
+                sale_type: { option: 'priced' },
               },
               disabled: false
             }
@@ -323,12 +326,11 @@ router.get('/scan', async (req, res) => {
       if (search.result?.length > 0) {
         total_listings = search.total || search.result.length;
 
-        // Buscar el primer listing válido en las primeras 3 tandas
-        for (let i = 0; i < Math.min(3, Math.ceil(search.result.length / 10)); i++) {
+        for (let i = 0; i < Math.min(3, search.result.length); i++) {
           const batch = search.result.slice(i * 10, (i + 1) * 10);
           if (batch.length === 0) break;
 
-          const fetched  = await fetchListings(batch, search.id);
+          const fetched  = await fetchListings(batch, search.id, { realm });
           const filtered = (fetched.result || [])
             .filter(l => l?.listing?.price)
             .sort((a, b) => a.listing.price.amount - b.listing.price.amount);
@@ -340,17 +342,26 @@ router.get('/scan', async (req, res) => {
         }
       }
 
-      const price         = cheapest?.listing?.price?.amount   ?? null;
-      const currency      = cheapest?.listing?.price?.currency ?? 'divine';
-      const seller        = cheapest?.listing?.account?.name   ?? null;
-      const seller_online = cheapest?.listing?.account?.online ? 1 : 0;
-      const indexed       = cheapest?.listing?.indexed         ?? null;
+      const price    = cheapest?.listing?.price?.amount   ?? null;
+      const currency = cheapest?.listing?.price?.currency ?? 'divine';
+      const seller   = cheapest?.listing?.account?.name   ?? null;
+      const indexed  = cheapest?.listing?.indexed         ?? null;
+      const isOwnAccount =
+        process.env.POE_ACCOUNT &&
+        seller?.toLowerCase() === process.env.POE_ACCOUNT.toLowerCase();
 
+      const onlineField   = cheapest?.listing?.account?.online
+      const seller_online = isOwnAccount
+        ? 'online'
+        : onlineField && typeof onlineField === 'object' ? 'online'
+        : onlineField === null || onlineField === undefined ? 'unknown'
+        : 'offline'
       db.prepare(`
         INSERT INTO gem_market_prices
-          (gem_type, category, cheapest_price, currency, seller, seller_online, indexed, total_listings, fetched_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-        ON CONFLICT(gem_type) DO UPDATE SET
+          (gem_type, realm, league, category, cheapest_price, currency,
+           seller, seller_online, indexed, total_listings, fetched_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(gem_type, realm, league) DO UPDATE SET
           category       = excluded.category,
           cheapest_price = excluded.cheapest_price,
           currency       = excluded.currency,
@@ -359,7 +370,7 @@ router.get('/scan', async (req, res) => {
           indexed        = excluded.indexed,
           total_listings = excluded.total_listings,
           fetched_at     = excluded.fetched_at
-      `).run(gem.type, gem.cat, price, currency, seller, seller_online, indexed, total_listings);
+      `).run(gem.type, realm, league, gem.cat, price, currency, seller, seller_online, indexed, total_listings);
 
       done++;
       send({
@@ -394,8 +405,17 @@ router.get('/scan', async (req, res) => {
   res.end();
 });
 
+// ─── DELETE /api/tracker/gems ─────────────────────────────────────────────────
 router.delete('/gems', (req, res) => {
-  db.prepare('DELETE FROM gem_market_prices').run();
+  const realm  = req.query.realm  || null;
+  const league = req.query.league || null;
+
+  // Si se pasan realm/league solo borra esa combinación; si no, todo
+  if (realm && league) {
+    db.prepare('DELETE FROM gem_market_prices WHERE realm=? AND league=?').run(realm, league);
+  } else {
+    db.prepare('DELETE FROM gem_market_prices').run();
+  }
   res.json({ deleted: true });
 });
 

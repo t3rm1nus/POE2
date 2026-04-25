@@ -1,14 +1,20 @@
 import { useState } from 'react'
-import Monitor from './pages/Monitor'
-import Tracker from './pages/Tracker'
-import Ranking from './pages/Ranking'
+import Monitor      from './pages/Monitor'
+import Tracker      from './pages/Tracker'
+import Ranking      from './pages/Ranking'
+import Chinofarmers from './pages/Chinofarmers'
+import Stocks       from './pages/Stocks'
+import Dinerete     from './pages/Dinerete'
 import { LeagueProvider, REALMS, LEAGUES, useLeague } from './LeagueContext'
 import { MonitorProvider } from './MonitorContext'
 import './App.css'
+
 const NAV = [
-  { id: 'monitor', label: 'Monitor de Precio',  icon: '🔔' },
-  { id: 'tracker', label: 'Historial de Precios', icon: '📈' },
-  { id: 'ranking', label: 'Ranking del Mercado', icon: '🏆' },
+  { id: 'monitor',      label: 'Monitor de Precio',    icon: '🔔' },
+  { id: 'tracker',      label: 'Historial de Precios', icon: '📈' },
+  { id: 'ranking',      label: 'Ranking del Mercado',  icon: '🏆' },
+  { id: 'chinofarmers', label: 'ChInOfArMeRs',         icon: '👲' },
+  { id: 'dinerete',     label: 'Dinerete',              icon: '💰' },
 ]
 
 function SidebarSettings() {
@@ -16,7 +22,6 @@ function SidebarSettings() {
 
   return (
     <div className="sidebar-settings">
-      {/* Realm */}
       <div className="settings-group">
         <label className="settings-label">Plataforma</label>
         <select
@@ -31,7 +36,6 @@ function SidebarSettings() {
         </select>
       </div>
 
-      {/* Liga */}
       <div className="settings-group">
         <label className="settings-label">Liga</label>
         <div className="radio-group">
@@ -54,8 +58,24 @@ function SidebarSettings() {
 }
 
 function AppShell() {
-  const [active, setActive] = useState('monitor')
-  const { realm, league }   = useLeague()
+  const [active, setActive]         = useState('monitor')
+  const [stocksUser, setStocksUser] = useState(null)
+  const { realm, league }           = useLeague()
+
+  function openStocks(user) {
+    setStocksUser(user)
+    setActive('stocks')
+  }
+
+  function backFromStocks() {
+    setActive('chinofarmers')
+    setStocksUser(null)
+  }
+
+  function handleNav(id) {
+    setActive(id)
+    if (id !== 'stocks') setStocksUser(null)
+  }
 
   return (
     <div className="app-shell">
@@ -72,8 +92,13 @@ function AppShell() {
           {NAV.map(item => (
             <button
               key={item.id}
-              className={`nav-item ${active === item.id ? 'nav-item--active' : ''}`}
-              onClick={() => setActive(item.id)}
+              className={`nav-item ${
+                active === item.id ||
+                (active === 'stocks' && item.id === 'chinofarmers')
+                  ? 'nav-item--active'
+                  : ''
+              }`}
+              onClick={() => handleNav(item.id)}
             >
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
@@ -90,9 +115,16 @@ function AppShell() {
       </aside>
 
       <main className="main-content">
-        {active === 'monitor' && <Monitor />}
-        {active === 'tracker' && <Tracker />}
-        {active === 'ranking' && <Ranking />}
+        {active === 'monitor'      && <Monitor />}
+        {active === 'tracker'      && <Tracker />}
+        {active === 'ranking'      && <Ranking />}
+        {active === 'dinerete'     && <Dinerete />}
+        {active === 'chinofarmers' && (
+          <Chinofarmers onViewStocks={openStocks} />
+        )}
+        {active === 'stocks' && stocksUser && (
+          <Stocks user={stocksUser} onBack={backFromStocks} />
+        )}
       </main>
     </div>
   )
@@ -100,8 +132,8 @@ function AppShell() {
 
 export default function App() {
   return (
-    <LeagueProvider>        {/* 1º */}
-      <MonitorProvider>     {/* 2º — ya puede usar useLeague() */}
+    <LeagueProvider>
+      <MonitorProvider>
         <AppShell />
       </MonitorProvider>
     </LeagueProvider>

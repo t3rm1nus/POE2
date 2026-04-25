@@ -6,6 +6,60 @@ import { POLL_OPTIONS, formatCountdown, repetirUltimoAviso } from '../monitorUti
 
 const CURRENCIES = ['chaos', 'divine', 'exalted', 'aug']
 
+// ─── Inyectar keyframe de pulso una sola vez ──────────────────────────────────
+let _pulseInjected = false
+function injectPulseStyle() {
+  if (_pulseInjected || typeof document === 'undefined') return
+  _pulseInjected = true
+  const s = document.createElement('style')
+  s.textContent = `
+    @keyframes sellerPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
+      50%       { box-shadow: 0 0 0 4px rgba(34,197,94,0);  }
+    }
+  `
+  document.head.appendChild(s)
+}
+
+// ─── Componente: punto de estado online ──────────────────────────────────────
+function OnlineDot({ online, isOwn = false, size = 8 }) {
+  injectPulseStyle()
+  const active = isOwn || !!online
+  return (
+    <span
+      title={isOwn ? 'Tu cuenta (siempre online)' : active ? 'Online' : 'Offline'}
+      style={{
+        display:         'inline-block',
+        width:           `${size}px`,
+        height:          `${size}px`,
+        borderRadius:    '50%',
+        flexShrink:      0,
+        verticalAlign:   'middle',
+        background:      active ? '#22c55e' : '#4b5563',
+        animation:       active ? 'sellerPulse 2s ease-in-out infinite' : 'none',
+        transition:      'background 0.3s',
+      }}
+    />
+  )
+}
+
+// ─── Componente: badge de vendedor con icono online ───────────────────────────
+function SellerBadge({ seller, online, isOwn = false, myAccount = '' }) {
+  const own = isOwn || (myAccount && seller?.toLowerCase() === myAccount?.toLowerCase())
+  return (
+    <span style={{
+      display:    'inline-flex',
+      alignItems: 'center',
+      gap:        '0.3rem',
+      fontSize:   '0.8rem',
+      color:      own ? 'var(--accent)' : 'var(--text-secondary)',
+      fontWeight: own ? 600 : 400,
+    }}>
+      <OnlineDot online={online} isOwn={own} />
+      {seller ?? '—'}
+    </span>
+  )
+}
 
 export default function Monitor() {
   const { realm, league } = useLeague()
@@ -22,20 +76,11 @@ export default function Monitor() {
     soundEnabled, setSoundEnabled,
     toasts, addToast,
     checkPrices, loadItems,
+    clearResults,
     isAutoCheckRef,
     autoCheckFnRef,
+    getDisplayName,
   } = useMonitor()
-
-  function getDisplayName(item) {
-    let query
-    try { query = typeof item.query === 'string' ? JSON.parse(item.query) : item.query } catch { query = null }
-    const type = query?.query?.type
-    const translated = (type && GEM_TRANSLATIONS[type]) || GEM_TRANSLATIONS[item.name] || null
-    return {
-      display:  translated || item.name,
-      original: translated && translated !== item.name ? item.name : null,
-    }
-  }
 
   function getResult(item) {
     return results.find(r => r.item === item.name && r.myPrice === item.my_price)
@@ -43,67 +88,75 @@ export default function Monitor() {
         ?? null
   }
 
+  // ─── Estado de la fila ────────────────────────────────────────────────────
   function renderStatus(item) {
     const r = getResult(item)
-    if (!r)      return <span className="status status--idle">— Sin comprobar</span>
-    if (r.error) return <span className="status status--idle">— Error</span>
-
-    if (r.cheaperOwnExists)
-      return <span className="status status--warn">🔵 Tienes otro más barato ({r.myActiveMin} {r.myCurrency})</span>
+    if (!r)                 return <span className="status status--idle">— Sin comprobar</span>
+    if (r.error)            return <span className="status status--idle">— Error</span>
+    if (r.noActiveListings) return <span className="status status--sold">🔴 Sin listing activo (¿vendido?)</span>
+    if (r.cheaperOwnExists) return <span className="status status--warn">🔵 Tienes otro más barato ({r.myActiveMin} {r.myCurrency})</span>
 
     if (r.isMinPrice) {
-      if (r.tied)
+      if (r.tied) {
+        // Vendedor del empate ya se ve en renderMercado — solo estado aquí
         return <span className="status status--warn">⚡ Empate ({r.marketMin} {r.marketCurrency})</span>
+      }
       return <span className="status status--ok">✅ Eres el más barato</span>
     }
 
-    return <span className="status status--warn">⚠️ Hay más baratos ({r.marketMin} {r.marketCurrency})</span>
-  }
-
-  function renderMercado(item) {
-    const r = getResult(item)
-    if (!r || r.marketMin === null) return <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>—</span>
+    // Hay más baratos
+    const c = r.cheaper?.[0]
     return (
-      <span style={{ fontSize: '0.85rem' }}>
-        <strong style={{ color: 'var(--accent)' }}>{r.marketMin}</strong>
-        <span style={{ color: 'var(--text-secondary)', marginLeft: '0.2rem', fontSize: '0.75rem' }}>
-          {r.marketCurrency}
-        </span>
-        {r.marketTotal > 0 && (
-          <span style={{ color: 'var(--text-secondary)', marginLeft: '0.4rem', fontSize: '0.72rem' }}>
-            ({r.marketTotal})
-          </span>
-        )}
+      <span className="status status--warn" style={{ color: '#ef4444', fontWeight: 700 }}>
+        ⚠️ Más baratos ({r.marketMin} {r.marketCurrency})
       </span>
     )
   }
 
-  // ─── Sonido (usa procesarResultados del contexto, aquí solo notificamos toasts extra) ──
-  function procesarResultados(resultados, esAutomatico) {
-    if (!esAutomatico || !soundEnabled) return
-    const porNombre = new Map()
-    for (const r of resultados) {
-      if (r.error) continue
-      const ex = porNombre.get(r.item)
-      if (!ex || r.myPrice < ex.myPrice) porNombre.set(r.item, r)
-    }
-    const representativos = Array.from(porNombre.values())
-    const superados = representativos.filter(r => !r.isMinPrice)
-    const empates   = representativos.filter(r => r.isMinPrice && r.tied)
-    if (superados.length > 0) {
-      superados.forEach(r => {
-        const it = items.find(i => i.name === r.item)
-        addToast(`⚠️ ${it ? getDisplayName(it).display : r.item} — hay ofertas a ${r.marketMin} ${r.marketCurrency}`, 'warn')
-      })
-    } else if (empates.length > 0) {
-      empates.forEach(r => {
-        const it = items.find(i => i.name === r.item)
-        addToast(`⚡ ${it ? getDisplayName(it).display : r.item} — empate a ${r.marketMin} ${r.marketCurrency}`, 'info')
-      })
-    }
+  // ─── Columna mercado ──────────────────────────────────────────────────────
+  function renderMercado(item) {
+    const r = getResult(item)
+    if (!r || r.marketMin === null)
+      return <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>—</span>
+
+    const cheaper = r.cheaper?.[0]
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+        {/* Precio mínimo del mercado */}
+        <span style={{ fontSize: '0.85rem' }}>
+          <strong style={{ color: 'var(--accent)' }}>{r.marketMin}</strong>
+          <span style={{ color: 'var(--text-secondary)', marginLeft: '0.2rem', fontSize: '0.75rem' }}>
+            {r.marketCurrency}
+          </span>
+          {r.marketTotal > 0 && (
+            <span style={{ color: 'var(--text-secondary)', marginLeft: '0.4rem', fontSize: '0.72rem' }}>
+              ({r.marketTotal})
+            </span>
+          )}
+        </span>
+
+        {/* Vendedor más barato con estado online */}
+        {cheaper?.seller && (
+          <SellerBadge
+            seller={cheaper.seller}
+            online={cheaper.online}
+          />
+        )}
+
+        {/* Si hay empate mostramos al rival también */}
+        {!cheaper && r.tiedSeller?.seller && (
+          <SellerBadge
+            seller={r.tiedSeller.seller}
+            online={r.tiedSeller.online}
+          />
+        )}
+      </div>
+    )
   }
 
-  // ─── Importar listings ───────────────────────────────────────────────────────
+  // ─── Importar listings ────────────────────────────────────────────────────
+  // Fix 3: Emitir evento al Tracker cuando el import termina
   function importListings() {
     return new Promise((resolve, reject) => {
       setImporting(true)
@@ -116,21 +169,31 @@ export default function Monitor() {
         if (data.status === 'fetching' || data.status === 'found' || data.status === 'searching') {
           setImportProgress(data)
         }
+        // DESPUÉS
         if (data.status === 'done') {
-          evtSource.close(); await loadItems()
-          setImporting(false); setImportProgress(null)
-          addToast('Importación completada', 'success')
+          evtSource.close()
+          await loadItems()
+          setImporting(false)
+          setImportProgress(null)
+          if (data.warn) {
+            addToast(`⚠️ ${data.warn}`, 'warn')
+          } else {
+            addToast('Importación completada', 'success')
+          }
+          window.dispatchEvent(new CustomEvent('monitor:check-done'))
           resolve()
         }
         if (data.error) {
-          evtSource.close(); setImporting(false)
+          evtSource.close()
+          setImporting(false)
           setImportProgress({ message: `Error: ${data.error}` })
           addToast(`Error: ${data.error}`, 'error')
           reject(new Error(data.error))
         }
       }
       evtSource.onerror = () => {
-        evtSource.close(); setImporting(false)
+        evtSource.close()
+        setImporting(false)
         setImportProgress({ message: 'Error de conexión' })
         addToast('Error de conexión con el servidor', 'error')
         reject(new Error('Error de conexión'))
@@ -138,20 +201,93 @@ export default function Monitor() {
     })
   }
 
-  // ─── Secuencia auto-check: importar → comprobar ──────────────────────────────
+  async function clearAllItemsSilent(currentItems) {
+    await Promise.all(
+      currentItems.map(item =>
+        fetch(`/api/monitor/items/${item.id}`, { method: 'DELETE' })
+      )
+    )
+    clearResults() 
+    await loadItems()
+  }
+
   useEffect(() => {
     autoCheckFnRef.current = async () => {
+      const snapshotItems = [...items]
+
+      if (snapshotItems.length > 0) {
+        addToast('🔄 Auto-check: limpiando lista...', 'info')
+        await clearAllItemsSilent(snapshotItems)
+      }
+
       try {
         await importListings()
       } catch (err) {
         console.warn('Import falló en auto-check, continuando igualmente:', err.message)
       }
-      checkPrices(true)
-    }
-    return () => { autoCheckFnRef.current = null }
-  }) // sin deps: re-registra cada render para capturar realm/league frescos
 
-  // ─── CRUD ────────────────────────────────────────────────────────────────────
+      let freshItems = []
+      try {
+        const res = await fetch('/api/monitor/items')
+        freshItems = await res.json()
+      } catch (err) {
+        console.warn('No se pudo leer ítems frescos:', err.message)
+      }
+
+      const freshNames = new Map(freshItems.map(i => [i.name, i]))
+      const preSales   = []
+
+      for (const prev of snapshotItems) {
+        const current = freshNames.get(prev.name)
+        if (!current) {
+          preSales.push({ name: prev.name, display: getDisplayName(prev).display, partial: false })
+          // 👇 AÑADIR: registrar venta total
+          fetch(`${import.meta.env.VITE_API ?? 'http://localhost:3001'}/api/sales`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              gem_name: getDisplayName(prev).display,
+              gem_type: prev.name,
+              price:    prev.my_price,
+              currency: prev.currency,
+              quantity: prev.quantity ?? 1,
+              partial:  false,
+              realm, league,
+            }),
+          }).then(() => window.dispatchEvent(new CustomEvent('dinerete:sale-added')))
+        } else {
+          const prevQty    = prev.quantity ?? 1
+          const currentQty = current.quantity ?? 1
+          if (prevQty > currentQty) {
+            preSales.push({
+              name: prev.name, display: getDisplayName(prev).display,
+              partial: true, soldCount: prevQty - currentQty, remaining: currentQty,
+            })
+            // 👇 AÑADIR: registrar venta parcial
+            fetch(`${import.meta.env.VITE_API ?? 'http://localhost:3001'}/api/sales`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                gem_name: getDisplayName(prev).display,
+                gem_type: prev.name,
+                price:    prev.my_price,
+                currency: prev.currency,
+                quantity: prevQty - currentQty,
+                partial:  true,
+                realm, league,
+              }),
+            }).then(() => window.dispatchEvent(new CustomEvent('dinerete:sale-added')))
+          }
+        }
+      }
+
+      checkPrices(true, preSales)
+    }
+
+    
+  })
+
+  // ─── CRUD ─────────────────────────────────────────────────────────────────
   async function addItem(e) {
     e.preventDefault()
     if (!form.name || !form.type || !form.my_price) { addToast('Completa todos los campos', 'error'); return }
@@ -159,17 +295,15 @@ export default function Monitor() {
       query: {
         type: form.type,
         stats:  [{ type: 'and', filters: [], disabled: true }],
-        status: { option: 'online' },   // ✅ solo vendedores online
+        status: { option: 'online' },
         filters: {
-          // ✅ instant buyout en todos los ítems
           trade_filters: {
             filters: {
-              sale_type: { option: 'priced' },         // solo precio fijo
-              price:     { option: form.currency },    // filtro de divisa
+              sale_type: { option: 'priced' },
+              price:     { option: form.currency },
             },
             disabled: false,
           },
-          // ✅ filtros de gema solo si es gema
           ...(form.category === 'gem' && {
             misc_filters: {
               filters: {
@@ -182,12 +316,6 @@ export default function Monitor() {
         },
       },
       sort: { price: 'asc' }
-    }
-    if (form.category === 'gem') {
-      query.query.filters = {
-        misc_filters:  { filters: { gem_level: { min: 21 }, gem_sockets: { min: 5 } }, disabled: false },
-        trade_filters: { filters: { price: { option: form.currency } } }
-      }
     }
     const res = await fetch('/api/monitor/items', {
       method: 'POST',
@@ -210,11 +338,10 @@ export default function Monitor() {
 
   async function clearAllItems() {
     if (!confirm('¿Eliminar todos los ítems?')) return
-    for (const item of items) await fetch(`/api/monitor/items/${item.id}`, { method: 'DELETE' })
-    loadItems(); addToast('Lista borrada', 'info')
+    await clearAllItemsSilent(items)
+    addToast('Lista borrada', 'info')
   }
 
-  // ─── Tabla ordenada ──────────────────────────────────────────────────────────
   const sortedItems = useMemo(() => {
     return [...items].sort((a, b) => {
       if (sortBy === 'price_desc') return b.my_price - a.my_price
@@ -222,26 +349,19 @@ export default function Monitor() {
       if (sortBy === 'name')       return getDisplayName(a).display.localeCompare(getDisplayName(b).display, 'es')
       return 0
     })
-  }, [items, sortBy, results])
+  }, [items, sortBy, results, getDisplayName])
 
-  // ─── Agrupar filas por nombre (FIX: agrupa aunque el sort las separe) ────────
   const rows = useMemo(() => {
-    // 1. Construir grupos por nombre
     const groupMap = new Map()
     for (const item of sortedItems) {
       if (!groupMap.has(item.name)) groupMap.set(item.name, [])
       groupMap.get(item.name).push(item)
     }
-
-    // 2. Respetar el orden del sort para los grupos, emitiendo el grupo completo
-    //    la primera vez que aparece el nombre
     const out  = []
     const seen = new Set()
     for (const item of sortedItems) {
       if (seen.has(item.name)) continue
       seen.add(item.name)
-
-      // Dentro de cada grupo: siempre de mayor a menor precio
       const group = groupMap.get(item.name).sort((a, b) => b.my_price - a.my_price)
       group.forEach((it, idx) =>
         out.push({ item: it, showName: idx === 0, nameRowSpan: idx === 0 ? group.length : 0 })
@@ -266,7 +386,6 @@ export default function Monitor() {
     </div>
   )
 
-  // ─── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="monitor">
 
@@ -368,9 +487,9 @@ export default function Monitor() {
             <colgroup>
               <col style={{ width: '22%' }} />
               <col style={{ width: '10%' }} />
-              <col style={{ width: '8%' }}  />
-              <col style={{ width: '36%' }} />
-              <col style={{ width: '24%' }} />
+              <col style={{ width: '8%'  }} />
+              <col style={{ width: '32%' }} />
+              <col style={{ width: '28%' }} />
             </colgroup>
             <thead>
               <tr>
@@ -378,7 +497,7 @@ export default function Monitor() {
                 <th>Mi precio</th>
                 <th>Divisa</th>
                 <th>Estado</th>
-                <th>Mercado (ofertas)</th>
+                <th>Mercado (mín / vendedor)</th>
               </tr>
             </thead>
             <tbody>
@@ -396,6 +515,15 @@ export default function Monitor() {
                         >
                           {display}
                         </span>
+                        {item.quantity > 1 && (
+                          <span style={{
+                            marginLeft: '0.4rem', fontSize: '0.7rem', color: 'var(--text-secondary)',
+                            background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                            borderRadius: '3px', padding: '0 0.25rem',
+                          }}>
+                            ×{item.quantity}
+                          </span>
+                        )}
                       </td>
                     )}
 

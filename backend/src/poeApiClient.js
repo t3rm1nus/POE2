@@ -2,8 +2,7 @@ const axios = require('axios');
 
 const BASE_URL = 'https://www.pathofexile.com/api/trade2';
 const LEAGUE   = 'Standard';
-// ✅ FIX PROBLEMA 3: el default es 'sony' (PS5), nunca 'pc'
-const REALM = process.env.POE_REALM || 'poe2';
+const REALM    = process.env.POE_REALM || 'poe2';
 
 // Cola simple para respetar rate limits (12 req / 60s)
 const queue = [];
@@ -60,12 +59,6 @@ function getHeaders() {
   };
 }
 
-// ✅ FIX PROBLEMA 2: eliminado filtro de antigüedad por fecha (listing.indexed),
-// sustituido por sale_type = 'buyout' en los trade_filters de la query.
-// Esto garantiza que solo se devuelven listings con precio fijo (compra inmediata),
-// que es exactamente lo que opera en PS5 Standard.
-// El filtro de fecha era poco fiable porque GGG no garantiza que `indexed` sea preciso.
-
 async function searchItems(query, { league = LEAGUE, realm = REALM } = {}) {
   return enqueue(async () => {
     const url = `${BASE_URL}/search/${realm}/${encodeURIComponent(league)}`;
@@ -94,9 +87,9 @@ async function getCheapestListing(query, { league = LEAGUE, realm = REALM } = {}
     return null;
   }
 
-  const topIds = search.result.slice(0, 10);
+  const topIds   = search.result.slice(0, 10);
   const listings = await fetchListings(topIds, search.id);
-  const sorted = (listings.result || [])
+  const sorted   = (listings.result || [])
     .filter(l => l?.listing?.price)
     .sort((a, b) => a.listing.price.amount - b.listing.price.amount);
 
@@ -106,45 +99,56 @@ async function getCheapestListing(query, { league = LEAGUE, realm = REALM } = {}
 async function analyzePrices(query, myAccount, { league = LEAGUE, realm = REALM } = {}) {
   const accountLower = myAccount?.toLowerCase();
 
-  // ── Clonar queries antes de mutar ──────────────────────────────────────────
+  // ── Clonar queries antes de mutar ─────────────────────────────────────────
   const myQuery     = JSON.parse(JSON.stringify(query));
   const marketQuery = JSON.parse(JSON.stringify(query));
-  // Asegurar status: securable (igual que la web oficial)
+
+  // FIX 1: stats es obligatorio en la API de PoE2; sin él devuelve Invalid query
+  if (!myQuery.query.stats)     myQuery.query.stats     = [{ type: 'and', filters: [], disabled: true }];
+  if (!marketQuery.query.stats) marketQuery.query.stats = [{ type: 'and', filters: [], disabled: true }];
+
+  // Status securable (igual que la web oficial)
   myQuery.query.status     = { option: 'securable' };
   marketQuery.query.status = { option: 'securable' };
 
-  // ✅ FIX PROBLEMA 2: añadir sale_type: 'buyout' para filtrar solo compra inmediata
-  // Esto reemplaza el filtro de antigüedad por fecha que era poco fiable
-  myQuery.query.filters = myQuery.query.filters || {};
+  // FIX 2: asegurar que filters existe antes de mutar
+  myQuery.query.filters     = myQuery.query.filters     || {};
+  marketQuery.query.filters = marketQuery.query.filters || {};
+
+  // FIX 3: account solo si está definido (evita input: undefined que invalida la query)
+  // FIX 4: disabled: false explícito en cada bloque de filtros
+  const myTradeFilters = {
+    sale_type: { option: 'priced' },
+    price:     { option: 'divine' },
+  };
+  if (myAccount) myTradeFilters.account = { input: myAccount };
+
   myQuery.query.filters.trade_filters = {
-    filters: {
-      sale_type: { option: 'priced' },
-      account:   { input: myAccount },
-      price:     { option: 'divine' },
-    }
+    filters:  myTradeFilters,
+    disabled: false,
   };
 
-  marketQuery.query.filters = marketQuery.query.filters || {};
   marketQuery.query.filters.trade_filters = {
     filters: {
       sale_type: { option: 'priced' },
       price:     { option: 'divine' },
-    }
+    },
+    disabled: false,
   };
 
   console.log(`[analyzePrices] realm=${realm} league=${league} type=${query?.query?.type}`);
 
-  // ── Mis listings ───────────────────────────────────────────────────────────
+  // ── Mis listings ──────────────────────────────────────────────────────────
   const mySearch   = await searchItems(myQuery, { league, realm });
   const myListings = [];
   if (mySearch.result?.length > 0) {
-    const myFetch     = await fetchListings(mySearch.result.slice(0, 10),     mySearch.id,     { realm });
+    const myFetch  = await fetchListings(mySearch.result.slice(0, 10), mySearch.id, { realm });
     const filtered = (myFetch.result || []).filter(l => l?.listing?.price);
     myListings.push(...filtered);
     myListings.sort((a, b) => a.listing.price.amount - b.listing.price.amount);
   }
 
-  // ── Mercado general ────────────────────────────────────────────────────────
+  // ── Mercado general ───────────────────────────────────────────────────────
   const marketSearch   = await searchItems(marketQuery, { league, realm });
   const marketListings = [];
   if (marketSearch.result?.length > 0) {
@@ -159,12 +163,20 @@ async function analyzePrices(query, myAccount, { league = LEAGUE, realm = REALM 
   }
 
   const cheapestOther = marketListings[0] || null;
-  const myMinPrice    = myListings[0]?.listing?.price?.amount  ?? null;
-  const otherMinPrice = cheapestOther?.listing?.price?.amount  ?? null;
+  const myMinPrice    = myListings[0]?.listing?.price?.amount ?? null;
+  const otherMinPrice = cheapestOther?.listing?.price?.amount ?? null;
   const tied          = myMinPrice !== null && otherMinPrice !== null && myMinPrice === otherMinPrice;
+
   console.log(`[analyzePrices] myMin=${myMinPrice} otherMin=${otherMinPrice} total=${marketSearch.total}`);
 
-  return { cheapestOther, myListings, tied, myMinPrice, otherMinPrice, marketTotal: marketSearch.total ?? 0 };
+  return {
+    cheapestOther,
+    myListings,
+    tied,
+    myMinPrice,
+    otherMinPrice,
+    marketTotal: marketSearch.total ?? 0,
+  };
 }
 
 module.exports = { searchItems, fetchListings, getCheapestListing, analyzePrices };

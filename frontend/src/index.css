@@ -190,6 +190,8 @@ body {
 .status--ok   { color: var(--success); }
 .status--warn { color: var(--accent); }
 .status--idle { color: var(--text-secondary); }
-
+.status--sold {
+  color: #f87171;
+}
 /* Empty state */
 .empty-state { color: var(--text-secondary); font-size: 0.85rem; text-align: center; padding: 3rem; }
