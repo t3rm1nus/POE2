@@ -44,15 +44,17 @@ const GEM_TRANSLATIONS = {
   'Ice Strike':                  'Golpe de hielo',
   'Tempest Flurry':              'Arrebato de tempestad',
   'Rushing Assault':             'Embate impetuoso',
-  'Frost Wall':                  'Ola de escarcha',
+  'Frost Wall':                  'Muro de hielo',
   'Drain Strike':                'Golpe de sustracción',
   'Storm Wave':                  'Ola de tormenta',
   'Hand of Chayula':             'Mano de Chayula',
   'Ruin':                        'Mantra de destrucción',
   'Shattering Palm':             'Palma fragmentadora',
   'Thunder Clap':                'Rayo atronador',
-  'Snap':                        'Golpe repentino',
+  'Snap':                        'Ruptura',
   'Gathering Storm':             'Tormenta inminente',
+  'Wave of Frost':             'Ola de Escarcha',
+  
 
   // ════════════════════════════════════════════════════════
   // OCULTISMO (Witch / Minions) — confirmado en capturas
@@ -85,7 +87,7 @@ const GEM_TRANSLATIONS = {
   'Bind Spectre':                'Vincular espectro',
   'Skeletal Sniper':             'Tirador esqueleto',
   'Skeletal Arsonist':           'Incendiario esqueleto',
-  'Skeletal Reaver':             'Asolador esqueleto',
+  'Skeletal Reaver':             'Desgarrador esqueleto',
 
   // ════════════════════════════════════════════════════════
   // PRIMALISMO (Druid) — confirmado en capturas
@@ -118,7 +120,7 @@ const GEM_TRANSLATIONS = {
   'Wing Blast':                  'Explosión alada',
   'Ferocious Roar':              'Rugido feroz',
   'Shockwave Totem':             'Tótem de onda expansiva',
-  'Cross Slash':                 'Tajo cruzado',
+  'Cross Slash':                 'Corte cruzado',
   'Entangle':                    'Enredar',
 
   // ════════════════════════════════════════════════════════
@@ -182,7 +184,7 @@ const GEM_TRANSLATIONS = {
   'Thunderstorm':                'Tormenta',
   'Staggering Palm':             'Palma aturdidora',
   'Siphoning Strike':            'Golpe de sifón',
-  'Flash Grenade':               'Granada de destello',
+  'Flash Grenade':               'Granada aturdidora',
   // ════════════════════════════════════════════════════════
   // LANZA (Spear) — confirmado en capturas
   // ════════════════════════════════════════════════════════
@@ -213,6 +215,51 @@ const GEM_TRANSLATIONS = {
   'Storm Lance':                 'Lanza de tormenta',
 
   // ════════════════════════════════════════════════════════
+  // ELEMENTAL (Sorceress / Invoker) — confirmado in-game
+  // ════════════════════════════════════════════════════════
+  
+  // ── Nivel I (desbloqueadas desde Uncut Gem lv1) ─────────
+  'Flame Wall':          'Muro de fuego',
+  'Ice Nova':            'Nova de hielo',
+  'Frost Bomb':          'Bomba de escarcha',
+  'Spark':               'Chispa',
+  
+  // ── Nivel III ───────────────────────────────────────────
+  'Fireball':            'Bola de fuego',
+  'Living Bomb':         'Bomba viviente',
+  'Frost Darts':         'Dardos de escarcha',
+  'Orb of Storms':       'Orbe de tormentas',
+  
+  // ── Nivel V ─────────────────────────────────────────────
+  'Ember Fusillade':     'Ráfaga de brasas',      // poe2db.tw confirma "Fusillade" (doble L)
+  'Frostbolt':           'Descarga de escarcha',  // ⚠ verificar en juego si coincide
+  // 'Snap' ya existe → 'Ruptura'
+  'Arc':                 'Arco eléctrico',
+  
+  // ── Nivel VII ───────────────────────────────────────────
+  'Temporal Chains':     'Cadenas temporales',
+  'Elemental Weakness':  'Debilidad elemental',
+  'Mana Tempest':        'Tempestad de maná',
+  
+  // ── Nivel IX ────────────────────────────────────────────
+  'Incinerate':          'Incinerar',
+  // 'Frost Wall' ya existe → corregir a 'Muro de hielo' (ver nota abajo)
+  'Lightning Warp':      'Teletransporte de rayo',
+  
+  // ── Nivel XI ────────────────────────────────────────────
+  'Firestorm':           'Tormenta de fuego',
+  'Comet':               'Cometa',
+  'Ball Lightning':      'Bola de rayos',
+  
+  // ── Nivel XIII ──────────────────────────────────────────
+  'Flameblast':          'Explosión de llamas',
+  'Eye of Winter':       'Ojo del invierno',
+  'Lightning Conduit':   'Conducto de rayo',
+  
+  // ── Gemas adicionales confirmadas por la wiki ────────────
+  'Solar Orb':           'Orbe solar',
+
+  // ════════════════════════════════════════════════════════
   // HERALDOS — confirmado en capturas
   // ════════════════════════════════════════════════════════
   'Herald of Blood':             'Heraldo de sangre',
@@ -223,6 +270,7 @@ const GEM_TRANSLATIONS = {
   // ════════════════════════════════════════════════════════
   // GEMAS DE SOPORTE — confirmado en capturas
   // ════════════════════════════════════════════════════════
+  'Elemental Conflux':           'Confluencia Elemental',
   'Trinity':                     'Trinidad',
   'Archmage':                    'Archimago',
   'Blasphemy':                   'Blasfemia',
@@ -248,7 +296,7 @@ const GEM_TRANSLATIONS = {
   'Withering Presence':          'Presencia marchitante',
   'Devouring Swarm':             'Enjambre voraz',
   'Cast on Minion Death':        'Lanzar con muerte de esbirro',
-  'Cast on Critical Strike':     'Lanzar al infligir impactos críticos',
+  'Cast on Critical':     'Lanzar al infligir impactos críticos',
   'Sacrifice':                   'Sacrificio',
   'Thorn Zone':                  'Zona espinosa',
   'Wild Fury':                   'Furia salvaje',
@@ -302,6 +350,7 @@ const GEM_TRANSLATIONS = {
   // BASTÓN — nuevo
   // ════════════════════════════════════════════════════════
   'Impending Doom':                'Fatalidad inminente',
+  'Flicker Strike':                'Golpe repentino',
 
   // ════════════════════════════════════════════════════════
   // SOPORTES — nombres reales de la API que no coincidían
@@ -313,7 +362,7 @@ const GEM_TRANSLATIONS = {
   'Siphon Elements':               'Drenaje de elementos',   // API usa este, no 'Element Drain'
   'Time of Need':                  'Momento de necesidad',   // API usa este, no 'Moment of Need'
   'Cast on Dodge':                 'Lanzar al esquivar rodando', // forma corta de 'Cast on Dodge Roll'
-  'Feral Invocation':              'Invocación feral',
+  'Feral Invocation':              'Conjuración salvaje',
   'Eternal Rage':                  'Furia eterna',            // API usa este, no 'Eternal Fury'
   'Shard Scavenger':               'Recolector de esquirlas', // API usa este, no 'Shard Collector'
   'Trail of Caltrops':             'Rastro de abrojos',       // API usa este, no 'Thorn Trail'

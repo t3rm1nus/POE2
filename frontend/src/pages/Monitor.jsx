@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import GEM_TRANSLATIONS from '../gemTranslations'
-import { useMonitor } from '../MonitorContext'
+import { useMonitor } from '../useMonitor'
 import { useLeague } from '../LeagueContext'
 import { POLL_OPTIONS, formatCountdown, repetirUltimoAviso } from '../monitorUtils'
 
-const CURRENCIES = ['chaos', 'divine', 'exalted', 'aug']
+const CURRENCIES = ['chaos', 'divine', 'annulment', 'exalted', 'aug']
+const ANN_TO_DIV = 0.5 // 2 annulment = 1 divine
 
-// ─── Inyectar keyframe de pulso una sola vez ──────────────────────────────────
+// ─── Inyectar keyframe de pulso ───────────────────────────────────────────────
 let _pulseInjected = false
 function injectPulseStyle() {
   if (_pulseInjected || typeof document === 'undefined') return
@@ -21,7 +22,43 @@ function injectPulseStyle() {
   document.head.appendChild(s)
 }
 
-// ─── Componente: punto de estado online ──────────────────────────────────────
+// ─── Badge de divisa ──────────────────────────────────────────────────────────
+function CurrencyBadge({ currency }) {
+  const isAnn = currency === 'annulment'
+  return (
+    <span style={{
+      fontSize:   '0.68rem',
+      fontWeight: 700,
+      padding:    '1px 5px',
+      borderRadius: 3,
+      background: isAnn ? 'rgba(251,191,36,0.15)' : 'rgba(139,92,246,0.15)',
+      border:     `1px solid ${isAnn ? '#fbbf2460' : '#8b5cf660'}`,
+      color:      isAnn ? '#fbbf24' : '#a78bfa',
+      whiteSpace: 'nowrap',
+    }}>
+      {isAnn ? 'Ø ann' : '◈ div'}
+    </span>
+  )
+}
+
+// ─── Precio con badge y equivalencia si es annulment ─────────────────────────
+function PriceDisplay({ price, currency, style = {} }) {
+  if (price === null || price === undefined) return <span style={{ color: 'var(--text-secondary)' }}>—</span>
+  const isAnn = currency === 'annulment'
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', flexWrap: 'wrap', ...style }}>
+      <strong style={{ color: 'var(--accent)' }}>{price}</strong>
+      <CurrencyBadge currency={currency} />
+      {isAnn && (
+        <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+          ≈{(price * ANN_TO_DIV).toFixed(2)}◈
+        </span>
+      )}
+    </span>
+  )
+}
+
+// ─── Punto online ─────────────────────────────────────────────────────────────
 function OnlineDot({ online, isOwn = false, size = 8 }) {
   injectPulseStyle()
   const active = isOwn || !!online
@@ -29,21 +66,21 @@ function OnlineDot({ online, isOwn = false, size = 8 }) {
     <span
       title={isOwn ? 'Tu cuenta (siempre online)' : active ? 'Online' : 'Offline'}
       style={{
-        display:         'inline-block',
-        width:           `${size}px`,
-        height:          `${size}px`,
-        borderRadius:    '50%',
-        flexShrink:      0,
-        verticalAlign:   'middle',
-        background:      active ? '#22c55e' : '#4b5563',
-        animation:       active ? 'sellerPulse 2s ease-in-out infinite' : 'none',
-        transition:      'background 0.3s',
+        display:       'inline-block',
+        width:         `${size}px`,
+        height:        `${size}px`,
+        borderRadius:  '50%',
+        flexShrink:    0,
+        verticalAlign: 'middle',
+        background:    active ? '#22c55e' : '#4b5563',
+        animation:     active ? 'sellerPulse 2s ease-in-out infinite' : 'none',
+        transition:    'background 0.3s',
       }}
     />
   )
 }
 
-// ─── Componente: badge de vendedor con icono online ───────────────────────────
+// ─── Badge de vendedor ────────────────────────────────────────────────────────
 function SellerBadge({ seller, online, isOwn = false, myAccount = '' }) {
   const own = isOwn || (myAccount && seller?.toLowerCase() === myAccount?.toLowerCase())
   return (
@@ -61,11 +98,68 @@ function SellerBadge({ seller, online, isOwn = false, myAccount = '' }) {
   )
 }
 
+// ─── Helper: registrar venta ──────────────────────────────────────────────────
+async function registerSale({ gem_name, gem_type, price, currency, quantity, partial, realm, league }) {
+  try {
+    await fetch('/api/sales', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gem_name, gem_type, price, currency, quantity, partial, realm, league }),
+    })
+    window.dispatchEvent(new CustomEvent('dinerete:sale-added'))
+  } catch (err) {
+    console.warn('[Dinerete] Error registrando venta:', err.message)
+  }
+}
+
+// ─── Panel de tips ────────────────────────────────────────────────────────────
+const SEVERITY_STYLES = {
+  high:   { bg: '#2d1a12', border: '#7c3a1e', gemColor: '#f0997b', textColor: '#fcd5c0' },
+  medium: { bg: '#2a1f0a', border: '#7a5010', gemColor: '#fac775', textColor: '#fde4a8' },
+  warn:   { bg: '#2a1010', border: '#7a2020', gemColor: '#f09595', textColor: '#fcc8c8' },
+  low:    { bg: '#0f2010', border: '#2d5c18', gemColor: '#7ec850', textColor: '#bde89a' },
+}
+
+function TipsPanel({ tips }) {
+  if (!tips || tips.length === 0) return null
+  return (
+    <div className="card">
+      <div className="card-title">🧠 Análisis de mercado</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '0.5rem' }}>
+        {tips.map(tip => {
+          const s = SEVERITY_STYLES[tip.severity] ?? SEVERITY_STYLES.low
+          return (
+            <div key={tip.key} style={{
+              display: 'flex', alignItems: 'flex-start', gap: '12px',
+              padding: '10px 14px', borderRadius: '8px',
+              background: s.bg, border: `1px solid ${s.border}`,
+            }}>
+              <span style={{ fontSize: '16px', flexShrink: 0, marginTop: '1px' }}>{tip.icon}</span>
+              <div>
+                <div style={{
+                  fontSize: '11px', fontWeight: 500, color: s.gemColor,
+                  marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.04em',
+                }}>
+                  {tip.gem}
+                </div>
+                <div style={{ fontSize: '13px', lineHeight: 1.5, color: s.textColor }}>
+                  {tip.text}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ─── Componente principal ─────────────────────────────────────────────────────
 export default function Monitor() {
   const { realm, league } = useLeague()
   const [importing, setImporting]           = useState(false)
   const [importProgress, setImportProgress] = useState(null)
-  const [form, setForm] = useState({ name: '', type: '', my_price: '', currency: 'chaos', category: 'item' })
+  const [form, setForm] = useState({ name: '', type: '', my_price: '', currency: 'divine', category: 'item' })
   const [sortBy, setSortBy] = useState('price_desc')
 
   const {
@@ -80,6 +174,8 @@ export default function Monitor() {
     isAutoCheckRef,
     autoCheckFnRef,
     getDisplayName,
+    clearTips,
+    tips,
   } = useMonitor()
 
   function getResult(item) {
@@ -91,24 +187,37 @@ export default function Monitor() {
   // ─── Estado de la fila ────────────────────────────────────────────────────
   function renderStatus(item) {
     const r = getResult(item)
-    if (!r)                 return <span className="status status--idle">— Sin comprobar</span>
-    if (r.error)            return <span className="status status--idle">— Error</span>
+    if (!r) return <span className="status status--idle">— Sin comprobar</span>
+    if (r.error) return <span className="status status--idle">— Error</span>
     if (r.noActiveListings) return <span className="status status--sold">🔴 Sin listing activo (¿vendido?)</span>
-    if (r.cheaperOwnExists) return <span className="status status--warn">🔵 Tienes otro más barato ({r.myActiveMin} {r.myCurrency})</span>
+
+    if (r.cheaperOwnExists) {
+      // Usar myActiveCurrency (divisa real del listing) no myCurrency (guardada en DB)
+      const activeCurr = r.myActiveCurrency ?? r.myCurrency
+      return (
+        <span className="status status--warn">
+          🔵 Tienes otro más barato&nbsp;
+          <PriceDisplay price={r.myActiveMin} currency={activeCurr} />
+        </span>
+      )
+    }
 
     if (r.isMinPrice) {
       if (r.tied) {
-        // Vendedor del empate ya se ve en renderMercado — solo estado aquí
-        return <span className="status status--warn">⚡ Empate ({r.marketMin} {r.marketCurrency})</span>
+        return (
+          <span className="status status--warn">
+            ⚡ Empate&nbsp;
+            <PriceDisplay price={r.marketMin} currency={r.marketCurrency} />
+          </span>
+        )
       }
       return <span className="status status--ok">✅ Eres el más barato</span>
     }
 
-    // Hay más baratos
-    const c = r.cheaper?.[0]
     return (
       <span className="status status--warn" style={{ color: '#ef4444', fontWeight: 700 }}>
-        ⚠️ Más baratos ({r.marketMin} {r.marketCurrency})
+        ⚠️ Más baratos&nbsp;
+        <PriceDisplay price={r.marketMin} currency={r.marketCurrency} />
       </span>
     )
   }
@@ -122,67 +231,100 @@ export default function Monitor() {
     const cheaper = r.cheaper?.[0]
 
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-        {/* Precio mínimo del mercado */}
-        <span style={{ fontSize: '0.85rem' }}>
-          <strong style={{ color: 'var(--accent)' }}>{r.marketMin}</strong>
-          <span style={{ color: 'var(--text-secondary)', marginLeft: '0.2rem', fontSize: '0.75rem' }}>
-            {r.marketCurrency}
-          </span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+          <strong style={{ color: 'var(--accent)', fontSize: '0.9rem' }}>{r.marketMin}</strong>
+          <CurrencyBadge currency={r.marketCurrency} />
+          {r.marketCurrency === 'annulment' && (
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+              ≈{(r.marketMin * ANN_TO_DIV).toFixed(2)}◈
+            </span>
+          )}
           {r.marketTotal > 0 && (
-            <span style={{ color: 'var(--text-secondary)', marginLeft: '0.4rem', fontSize: '0.72rem' }}>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '0.72rem' }}>
               ({r.marketTotal})
             </span>
           )}
-        </span>
+        </div>
 
-        {/* Vendedor más barato con estado online */}
         {cheaper?.seller && (
-          <SellerBadge
-            seller={cheaper.seller}
-            online={cheaper.online}
-          />
+          <SellerBadge seller={cheaper.seller} online={cheaper.online} />
         )}
-
-        {/* Si hay empate mostramos al rival también */}
         {!cheaper && r.tiedSeller?.seller && (
-          <SellerBadge
-            seller={r.tiedSeller.seller}
-            online={r.tiedSeller.online}
-          />
+          <SellerBadge seller={r.tiedSeller.seller} online={r.tiedSeller.online} />
         )}
       </div>
     )
   }
 
   // ─── Importar listings ────────────────────────────────────────────────────
-  // Fix 3: Emitir evento al Tracker cuando el import termina
-  function importListings() {
+  function importListings(snapshotOverride = null) {
+    const snapshot = snapshotOverride ?? [...items]
+
     return new Promise((resolve, reject) => {
       setImporting(true)
       setImportProgress({ message: 'Conectando...', progress: 0, total_chunks: 0 })
+
       const evtSource = new EventSource(
         `/api/import/listings?realm=${realm}&league=${encodeURIComponent(league)}`
       )
+
       evtSource.onmessage = async (e) => {
         const data = JSON.parse(e.data)
+
         if (data.status === 'fetching' || data.status === 'found' || data.status === 'searching') {
           setImportProgress(data)
         }
-        // DESPUÉS
+
         if (data.status === 'done') {
           evtSource.close()
           await loadItems()
           setImporting(false)
           setImportProgress(null)
+
+          if (snapshot.length > 0) {
+            try {
+              const res        = await fetch('/api/monitor/items')
+              const freshItems = await res.json()
+              const freshMap   = new Map(freshItems.map(i => [i.name, i]))
+
+              for (const prev of snapshot) {
+                const current = freshMap.get(prev.name)
+                const { display } = getDisplayName(prev)
+
+                if (!current) {
+                  await registerSale({
+                    gem_name: display, gem_type: prev.name,
+                    price: prev.my_price, currency: prev.currency,
+                    quantity: prev.quantity ?? 1, partial: false, realm, league,
+                  })
+                } else {
+                  const prevQty    = prev.quantity    ?? 1
+                  const currentQty = current.quantity ?? 1
+                  if (prevQty > currentQty) {
+                    await registerSale({
+                      gem_name: display, gem_type: prev.name,
+                      price: prev.my_price, currency: prev.currency,
+                      quantity: prevQty - currentQty, partial: true, realm, league,
+                    })
+                  }
+                }
+              }
+            } catch (err) {
+              console.warn('[Dinerete] Error comparando snapshot:', err.message)
+            }
+          }
+
           if (data.warn) {
             addToast(`⚠️ ${data.warn}`, 'warn')
           } else {
             addToast('Importación completada', 'success')
           }
+
           window.dispatchEvent(new CustomEvent('monitor:check-done'))
           resolve()
         }
+
         if (data.error) {
           evtSource.close()
           setImporting(false)
@@ -191,6 +333,7 @@ export default function Monitor() {
           reject(new Error(data.error))
         }
       }
+
       evtSource.onerror = () => {
         evtSource.close()
         setImporting(false)
@@ -203,88 +346,26 @@ export default function Monitor() {
 
   async function clearAllItemsSilent(currentItems) {
     await Promise.all(
-      currentItems.map(item =>
-        fetch(`/api/monitor/items/${item.id}`, { method: 'DELETE' })
-      )
+      currentItems.map(item => fetch(`/api/monitor/items/${item.id}`, { method: 'DELETE' }))
     )
-    clearResults() 
+    clearResults()
     await loadItems()
   }
 
   useEffect(() => {
     autoCheckFnRef.current = async () => {
       const snapshotItems = [...items]
-
       if (snapshotItems.length > 0) {
         addToast('🔄 Auto-check: limpiando lista...', 'info')
         await clearAllItemsSilent(snapshotItems)
       }
-
       try {
-        await importListings()
+        await importListings(snapshotItems)
       } catch (err) {
         console.warn('Import falló en auto-check, continuando igualmente:', err.message)
       }
-
-      let freshItems = []
-      try {
-        const res = await fetch('/api/monitor/items')
-        freshItems = await res.json()
-      } catch (err) {
-        console.warn('No se pudo leer ítems frescos:', err.message)
-      }
-
-      const freshNames = new Map(freshItems.map(i => [i.name, i]))
-      const preSales   = []
-
-      for (const prev of snapshotItems) {
-        const current = freshNames.get(prev.name)
-        if (!current) {
-          preSales.push({ name: prev.name, display: getDisplayName(prev).display, partial: false })
-          // 👇 AÑADIR: registrar venta total
-          fetch(`${import.meta.env.VITE_API ?? 'http://localhost:3001'}/api/sales`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              gem_name: getDisplayName(prev).display,
-              gem_type: prev.name,
-              price:    prev.my_price,
-              currency: prev.currency,
-              quantity: prev.quantity ?? 1,
-              partial:  false,
-              realm, league,
-            }),
-          }).then(() => window.dispatchEvent(new CustomEvent('dinerete:sale-added')))
-        } else {
-          const prevQty    = prev.quantity ?? 1
-          const currentQty = current.quantity ?? 1
-          if (prevQty > currentQty) {
-            preSales.push({
-              name: prev.name, display: getDisplayName(prev).display,
-              partial: true, soldCount: prevQty - currentQty, remaining: currentQty,
-            })
-            // 👇 AÑADIR: registrar venta parcial
-            fetch(`${import.meta.env.VITE_API ?? 'http://localhost:3001'}/api/sales`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                gem_name: getDisplayName(prev).display,
-                gem_type: prev.name,
-                price:    prev.my_price,
-                currency: prev.currency,
-                quantity: prevQty - currentQty,
-                partial:  true,
-                realm, league,
-              }),
-            }).then(() => window.dispatchEvent(new CustomEvent('dinerete:sale-added')))
-          }
-        }
-      }
-
-      checkPrices(true, preSales)
+      checkPrices(true, [])
     }
-
-    
   })
 
   // ─── CRUD ─────────────────────────────────────────────────────────────────
@@ -293,40 +374,34 @@ export default function Monitor() {
     if (!form.name || !form.type || !form.my_price) { addToast('Completa todos los campos', 'error'); return }
     const query = {
       query: {
-        type: form.type,
+        type:   form.type,
         stats:  [{ type: 'and', filters: [], disabled: true }],
         status: { option: 'online' },
         filters: {
           trade_filters: {
-            filters: {
-              sale_type: { option: 'priced' },
-              price:     { option: form.currency },
-            },
+            filters: { sale_type: { option: 'priced' } },
             disabled: false,
           },
           ...(form.category === 'gem' && {
             misc_filters: {
-              filters: {
-                gem_level:   { min: 21 },
-                gem_sockets: { min: 5  },
-              },
+              filters: { gem_level: { min: 21 }, gem_sockets: { min: 5 } },
               disabled: false,
             },
           }),
         },
       },
-      sort: { price: 'asc' }
+      sort: { price: 'asc' },
     }
     const res = await fetch('/api/monitor/items', {
-      method: 'POST',
+      method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: form.name, category: form.category, query,
-        my_price: parseFloat(form.my_price), currency: form.currency
-      })
+        my_price: parseFloat(form.my_price), currency: form.currency,
+      }),
     })
     if (res.ok) {
-      setForm({ name: '', type: '', my_price: '', currency: 'chaos', category: 'item' })
+      setForm({ name: '', type: '', my_price: '', currency: 'divine', category: 'item' })
       loadItems(); addToast('Ítem agregado', 'success')
     }
   }
@@ -396,7 +471,7 @@ export default function Monitor() {
             background: t.type === 'warn' ? '#3a2800' : 'var(--bg-elevated)',
             border: `1px solid ${t.type === 'warn' ? '#f59e0b' : 'var(--border)'}`,
             color: 'var(--text-primary)', padding: '0.65rem 1rem', borderRadius: '6px',
-            fontSize: '0.85rem', boxShadow: '0 4px 12px rgba(0,0,0,0.4)', maxWidth: '320px'
+            fontSize: '0.85rem', boxShadow: '0 4px 12px rgba(0,0,0,0.4)', maxWidth: '320px',
           }}>
             {t.message}
           </div>
@@ -420,27 +495,16 @@ export default function Monitor() {
           </span>
         )}
 
-        <button
-          className={`btn ${soundEnabled ? 'btn--primary' : 'btn--secondary'}`}
-          onClick={() => setSoundEnabled(s => !s)}
-          style={{ minWidth: '2.5rem' }}
-        >
+        <button className={`btn ${soundEnabled ? 'btn--primary' : 'btn--secondary'}`} onClick={() => setSoundEnabled(s => !s)} style={{ minWidth: '2.5rem' }}>
           {soundEnabled ? '🔔' : '🔕'}
         </button>
-
-        <button
-          className="btn btn--secondary"
-          onClick={repetirUltimoAviso}
-          style={{ minWidth: '2.5rem' }}
-          title="Repetir último aviso"
-        >
+        <button className="btn btn--secondary" onClick={repetirUltimoAviso} style={{ minWidth: '2.5rem' }} title="Repetir último aviso">
           🔁
         </button>
-
         <button className="btn btn--primary" onClick={() => checkPrices(false)} disabled={loading || items.length === 0}>
           {loading && !isAutoCheckRef.current ? 'Comprobando...' : 'Comprobar ahora'}
         </button>
-        <button className="btn btn--primary" onClick={importListings} disabled={importing}>
+        <button className="btn btn--primary" onClick={() => importListings()} disabled={importing}>
           {importing ? '⏳ Importando...' : '📥 Importar mis listings'}
         </button>
         <button className="btn btn--danger" onClick={clearAllItems} disabled={items.length === 0}>
@@ -448,8 +512,17 @@ export default function Monitor() {
         </button>
       </div>
 
-      {checkProgress  && <ProgressBar progress={checkProgress.progress  ?? 0} total={checkProgress.total   ?? 0} message={checkProgress.message}  />}
+      {checkProgress  && <ProgressBar progress={checkProgress.progress  ?? 0} total={checkProgress.total        ?? 0} message={checkProgress.message}  />}
       {importProgress && <ProgressBar progress={importProgress.progress ?? 0} total={importProgress.total_chunks ?? 0} message={importProgress.message} />}
+
+      {tips.length > 0 && (
+        <div style={{ position: 'relative' }}>
+          <button className="btn btn--secondary" onClick={clearTips} style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.75rem', padding: '0.2rem 0.6rem', zIndex: 1 }}>
+            ✕ Limpiar
+          </button>
+          <TipsPanel tips={tips} />
+        </div>
+      )}
 
       {/* Formulario */}
       <div className="card">
@@ -485,17 +558,15 @@ export default function Monitor() {
         ) : (
           <table className="table" style={{ tableLayout: 'fixed', width: '100%' }}>
             <colgroup>
-              <col style={{ width: '22%' }} />
-              <col style={{ width: '10%' }} />
-              <col style={{ width: '8%'  }} />
-              <col style={{ width: '32%' }} />
-              <col style={{ width: '28%' }} />
+              <col style={{ width: '20%' }} />
+              <col style={{ width: '14%' }} />
+              <col style={{ width: '30%' }} />
+              <col style={{ width: '36%' }} />
             </colgroup>
             <thead>
               <tr>
                 <th>Ítem</th>
                 <th>Mi precio</th>
-                <th>Divisa</th>
                 <th>Estado</th>
                 <th>Mercado (mín / vendedor)</th>
               </tr>
@@ -504,6 +575,7 @@ export default function Monitor() {
               {rows.map(({ item, showName, nameRowSpan }, idx) => {
                 const { display, original } = getDisplayName(item)
                 const isFirstOfGroup = showName && idx > 0
+                const isAnn = item.currency === 'annulment'
                 return (
                   <tr key={item.id} style={{ borderTop: isFirstOfGroup ? '2px solid var(--border)' : undefined }}>
 
@@ -527,13 +599,20 @@ export default function Monitor() {
                       </td>
                     )}
 
+                    {/* Mi precio + divisa en una sola celda con badge */}
                     <td>
                       <span style={{
-                        display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                        display: 'inline-flex', alignItems: 'center', gap: '0.25rem', flexWrap: 'wrap',
                         background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-                        borderRadius: '4px', padding: '0.1rem 0.35rem', fontSize: '0.85rem'
+                        borderRadius: '4px', padding: '0.15rem 0.4rem', fontSize: '0.85rem',
                       }}>
                         {item.my_price}
+                        <CurrencyBadge currency={item.currency} />
+                        {isAnn && (
+                          <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
+                            ≈{(item.my_price * ANN_TO_DIV).toFixed(2)}◈
+                          </span>
+                        )}
                         <button
                           className="btn btn--danger btn--sm"
                           onClick={() => deleteItem(item.id)}
@@ -544,7 +623,6 @@ export default function Monitor() {
                       </span>
                     </td>
 
-                    <td><span className="badge">{item.currency}</span></td>
                     <td>{renderStatus(item)}</td>
                     <td>{renderMercado(item)}</td>
                   </tr>

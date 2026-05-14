@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useState, useMemo } from 'react'
 import GEM_TRANSLATIONS from '../gemTranslations'
-import { useLeague } from '../LeagueContext'
+import { useTracker } from '../TrackerContext'
 
 const CATEGORIES = ['Todas', 'Arco', 'Bastón', 'Ocultismo', 'Primalismo', 'Maza', 'Ballesta', 'Lanza', 'Heraldo', 'Soporte']
 
@@ -31,18 +31,13 @@ function isStaleDate(dateStr, maxHours = 24) {
   return (Date.now() - new Date(dateStr).getTime()) > maxHours * 3_600_000
 }
 
-// ─── Normalizar seller_online ─────────────────────────────────────────────────
-// Acepta tanto el formato legacy (0/1/true/false) como el nuevo ('online'|'unknown'|'offline')
-// para compatibilidad con datos ya guardados en SQLite antes del fix.
 function normalizeOnlineStatus(value, isOwn = false) {
   if (isOwn) return 'online'
   if (value === 'online'  || value === 1 || value === true)  return 'online'
   if (value === 'offline' || value === 0 || value === false)  return 'offline'
-  // null, undefined, 'unknown' → desconocido
   return 'unknown'
 }
 
-// ─── Inyectar keyframe de pulso una sola vez ──────────────────────────────────
 let _pulseInjected = false
 function injectPulseStyle() {
   if (_pulseInjected || typeof document === 'undefined') return
@@ -61,194 +56,97 @@ function injectPulseStyle() {
   document.head.appendChild(s)
 }
 
-// ─── Componente: punto de estado online ──────────────────────────────────────
-// status: 'online' | 'unknown' | 'offline'
 function OnlineDot({ status, size = 8 }) {
   injectPulseStyle()
-
   const color = status === 'online'  ? '#22c55e'
               : status === 'unknown' ? '#f59e0b'
               :                        '#4b5563'
-
   const animation = status === 'online'  ? 'sellerPulse 2s ease-in-out infinite'
                   : status === 'unknown' ? 'unknownPulse 2.5s ease-in-out infinite'
                   :                        'none'
-
   const title = status === 'online'  ? 'Online'
               : status === 'unknown' ? 'Estado desconocido (puede tener privacidad activada)'
               :                        'Offline'
-
   return (
-    <span
-      title={title}
-      style={{
-        display:       'inline-block',
-        width:         `${size}px`,
-        height:        `${size}px`,
-        borderRadius:  '50%',
-        flexShrink:    0,
-        verticalAlign: 'middle',
-        background:    color,
-        animation,
-        transition:    'background 0.3s',
-      }}
-    />
+    <span title={title} style={{
+      display: 'inline-block', width: `${size}px`, height: `${size}px`,
+      borderRadius: '50%', flexShrink: 0, verticalAlign: 'middle',
+      background: color, animation, transition: 'background 0.3s',
+    }} />
   )
 }
 
-// ─── Componente: badge de vendedor ────────────────────────────────────────────
 function SellerBadge({ seller, onlineStatus, isOwn = false, fetchedAt }) {
-  const ageStr = fetchedAt ? `Estado capturado ${formatAge(fetchedAt)}` : ''
+  const ageStr  = fetchedAt ? `Estado capturado ${formatAge(fetchedAt)}` : ''
   const tooltip = isOwn
     ? 'Tu cuenta'
     : onlineStatus === 'unknown'
       ? `Estado desconocido (¿privacidad activada?) · ${ageStr}`
       : `${onlineStatus === 'online' ? 'Online' : 'Offline'} · ${ageStr}`
-
   return (
-    <span
-      title={tooltip}
-      style={{
-        display:    'inline-flex',
-        alignItems: 'center',
-        gap:        '0.35rem',
-        fontSize:   '0.82rem',
-        color:      isOwn ? 'var(--accent)' : 'inherit',
-        fontWeight: isOwn ? 600 : 400,
-        cursor:     'help',
-      }}
-    >
+    <span title={tooltip} style={{
+      display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+      fontSize: '0.82rem', color: isOwn ? 'var(--accent)' : 'inherit',
+      fontWeight: isOwn ? 600 : 400, cursor: 'help',
+    }}>
       <OnlineDot status={isOwn ? 'online' : onlineStatus} />
       {seller}
     </span>
   )
 }
 
+function CurrencyBadge({ currency }) {
+  const isAnn = currency === 'annulment'
+  return (
+    <span style={{
+      fontSize: '0.68rem', fontWeight: 700, padding: '0 4px',
+      borderRadius: 3, marginLeft: 4,
+      background: isAnn ? 'rgba(251,191,36,0.15)' : 'rgba(139,92,246,0.15)',
+      border: `1px solid ${isAnn ? '#fbbf2460' : '#8b5cf660'}`,
+      color: isAnn ? '#fbbf24' : '#a78bfa',
+    }}>
+      {isAnn ? 'Ø ann' : '◈ div'}
+    </span>
+  )
+}
+
+function Stat({ label, value, accent, dim, warn }) {
+  const color = warn   ? '#f59e0b'
+              : accent ? 'var(--accent)'
+              : dim    ? 'var(--text-secondary)'
+              : 'var(--text-primary)'
+  return (
+    <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+      {label}:{' '}
+      <strong style={{ color }}>{value}</strong>
+    </span>
+  )
+}
+
+const ANNULMENT_TO_DIVINE = 0.5
+
+function divineEquiv(price, currency) {
+  if (price === null || price === undefined) return Infinity
+  if (currency === 'annulment') return price * ANNULMENT_TO_DIVINE
+  return price
+}
+
 export default function Tracker() {
-  const { realm, league } = useLeague()
+  // ── Todo lo persistente viene del contexto ───────────────────────────────
+  const {
+    gems, meta, staleCount, pendingCount, totalGems, myAccount,
+    scanning, scanProgress, currentGem, evtSourceRef,
+    startScan, stopScan, clearAllGems,
+  } = useTracker()
 
-  const [gems, setGems]                   = useState({})
-  const [meta, setMeta]                   = useState(null)
-  const [staleCount, setStaleCount]       = useState(0)
-  const [pendingCount, setPendingCount]   = useState(0)
-  const [totalGems, setTotalGems]         = useState(0)
-  const [myAccount, setMyAccount]         = useState('')
-
-  const [scanning, setScanning]           = useState(false)
-  const [scanProgress, setScanProgress]   = useState(null)
-  const [currentGem, setCurrentGem]       = useState(null)
-  const evtSourceRef = useRef(null)
-
-  const [filterCat, setFilterCat]     = useState('Todas')
-  const [sortBy, setSortBy]           = useState('price_desc')
-  const [search, setSearch]           = useState('')
-  const [hideEmpty, setHideEmpty]     = useState(false)
+  // ── Estado solo de UI (filtros) — puede vivir en el componente ───────────
+  const [filterCat,   setFilterCat]   = useState('Todas')
+  const [sortBy,      setSortBy]      = useState('price_desc')
+  const [search,      setSearch]      = useState('')
+  const [hideEmpty,   setHideEmpty]   = useState(false)
   const [hideSupport, setHideSupport] = useState(false)
 
-  const loadCachedGems = useCallback(async () => {
-    try {
-      const res  = await fetch(`/api/tracker/gems?realm=${realm}&league=${encodeURIComponent(league)}`)
-      const data = await res.json()
-      const map  = {}
-      for (const g of data.gems) map[g.gem_type] = g
-      setGems(map)
-      setMeta(data.meta)
-      setStaleCount(data.stale_count   ?? 0)
-      setPendingCount(data.pending_count ?? 0)
-      setTotalGems(data.total_gems      ?? 0)
-      if (data.my_account) setMyAccount(data.my_account)
-    } catch (err) {
-      console.error('Error cargando caché de gemas:', err)
-    }
-  }, [realm, league])
-
-  useEffect(() => { loadCachedGems() }, [loadCachedGems])
-
-  useEffect(() => {
-    window.addEventListener('monitor:check-done', loadCachedGems)
-    return () => window.removeEventListener('monitor:check-done', loadCachedGems)
-  }, [loadCachedGems])
-
-  // ─── Escaneo ──────────────────────────────────────────────────────────────
-  function startScan(force = false) {
-    if (scanning) return
-    setScanning(true)
-    setCurrentGem(null)
-    setScanProgress({ message: 'Conectando...', progress: 0, total: 0 })
-
-    const params = new URLSearchParams({ realm, league, ...(force ? { force: 'true' } : {}) })
-    const evtSource = new EventSource(`/api/tracker/scan?${params}`)
-    evtSourceRef.current = evtSource
-
-    evtSource.onmessage = (e) => {
-      const data = JSON.parse(e.data)
-
-      if (data.status === 'start') {
-        setScanProgress({ message: `Escaneando ${data.total} gemas pendientes...`, progress: 0, total: data.total })
-      }
-
-      if (data.status === 'scanning') {
-        const nameEs = GEM_TRANSLATIONS[data.gem_type] || data.gem_type
-        setCurrentGem({ name: nameEs, cat: data.category })
-        setScanProgress(prev => ({ ...prev, message: `Consultando: ${nameEs}`, progress: data.progress }))
-      }
-
-      if (data.status === 'gem_done') {
-        const { gem_type, category, price, currency, seller, seller_online, total_listings, progress, total } = data
-        setScanProgress(prev => ({ ...prev, progress, total }))
-
-        if (data.status === 'gem_done') {
-          setGems(prev => ({
-            ...prev,
-            [gem_type]: {
-              gem_type,
-              category,
-              cheapest_price:  price         ?? null,
-              currency:        currency      ?? 'divine',
-              seller:          seller        ?? null,
-              seller_online:   seller_online != null ? seller_online : 'unknown',
-              total_listings:  total_listings ?? 0,
-              fetched_at:      new Date().toISOString(),
-            }
-          }))
-        }
-      }
-
-      if (data.status === 'done') {
-        evtSource.close()
-        setScanning(false)
-        setScanProgress(null)
-        setCurrentGem(null)
-        loadCachedGems()
-      }
-    }
-
-    evtSource.onerror = () => {
-      evtSource.close()
-      setScanning(false)
-      setScanProgress({ message: 'Error de conexión — escaneo interrumpido' })
-      setCurrentGem(null)
-    }
-  }
-
-  function stopScan() {
-    evtSourceRef.current?.close()
-    evtSourceRef.current = null
-    setScanning(false)
-    setScanProgress(null)
-    setCurrentGem(null)
-  }
-
-  async function clearAllGems() {
-    if (!confirm('¿Borrar todos los datos del mercado de gemas para esta liga?\nTendrás que volver a escanear desde cero.')) return
-    await fetch(`/api/tracker/gems?realm=${realm}&league=${encodeURIComponent(league)}`, { method: 'DELETE' })
-    setGems({})
-    setMeta(null)
-    setStaleCount(0)
-    setPendingCount(0)
-  }
-
-  // ─── Lista derivada ───────────────────────────────────────────────────────
+  // ── Lista derivada ────────────────────────────────────────────────────────
   const gemList = useMemo(() => {
     let list = Object.values(gems)
 
@@ -266,18 +164,8 @@ export default function Tracker() {
     }
 
     list.sort((a, b) => {
-      if (sortBy === 'price_desc') {
-        if (a.cheapest_price === null && b.cheapest_price === null) return 0
-        if (a.cheapest_price === null) return 1
-        if (b.cheapest_price === null) return -1
-        return b.cheapest_price - a.cheapest_price
-      }
-      if (sortBy === 'price_asc') {
-        if (a.cheapest_price === null && b.cheapest_price === null) return 0
-        if (a.cheapest_price === null) return 1
-        if (b.cheapest_price === null) return -1
-        return a.cheapest_price - b.cheapest_price
-      }
+      if (sortBy === 'price_desc') return divineEquiv(b.cheapest_price, b.currency) - divineEquiv(a.cheapest_price, a.currency)
+      if (sortBy === 'price_asc')  return divineEquiv(a.cheapest_price, a.currency) - divineEquiv(b.cheapest_price, b.currency)
       if (sortBy === 'name') {
         const na = GEM_TRANSLATIONS[a.gem_type] || a.gem_type
         const nb = GEM_TRANSLATIONS[b.gem_type] || b.gem_type
@@ -299,6 +187,7 @@ export default function Tracker() {
   const totalWithPrice = Object.values(gems).filter(g => g.cheapest_price !== null).length
   const dataIsStale    = isStaleDate(meta?.newest)
   const noDataAtAll    = totalScanned === 0
+  const isForceScan    = evtSourceRef.current?.url?.includes('force')
 
   const scanBtnLabel = noDataAtAll
     ? '🚀 Primer escaneo'
@@ -320,18 +209,23 @@ export default function Tracker() {
             </span>
           )}
 
+          {/* Indicador de escaneo en curso (visible desde cualquier página al volver) */}
+          {scanning && (
+            <span style={{ fontSize: '0.8rem', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+              <span className="spinner" /> Escaneo en curso...
+            </span>
+          )}
+
           <button
             className="btn btn--secondary"
             onClick={() => startScan(false)}
             disabled={scanning || (!noDataAtAll && staleCount === 0 && pendingCount === 0)}
           >
-            {scanning && !evtSourceRef.current?.url?.includes('force') ? '⏳ Escaneando...' : scanBtnLabel}
+            {scanning && !isForceScan ? '⏳ Escaneando...' : scanBtnLabel}
           </button>
-
           <button className="btn btn--primary" onClick={() => startScan(true)} disabled={scanning}>
             🔃 Forzar escaneo completo
           </button>
-
           {scanning && (
             <button className="btn btn--danger" onClick={stopScan}>✕ Detener</button>
           )}
@@ -348,7 +242,7 @@ export default function Tracker() {
             <span style={{
               color: 'var(--text-secondary)', fontSize: '0.85rem',
               flex: '1 1 0', minWidth: 0, overflow: 'hidden',
-              textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+              textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>
               {currentGem && (
                 <span style={{
@@ -360,7 +254,6 @@ export default function Tracker() {
               )}
               {scanProgress.message}
             </span>
-
             {scanProgress.total > 0 && (
               <>
                 <div style={{ flex: '0 0 180px', background: 'var(--bg-elevated)', borderRadius: '4px', height: '6px' }}>
@@ -383,7 +276,7 @@ export default function Tracker() {
       {totalScanned > 0 && (
         <div className="card" style={{ marginBottom: '1rem', display: 'flex', gap: '1.5rem', flexWrap: 'wrap', padding: '0.75rem 1rem' }}>
           <Stat label="Escaneadas" value={`${totalScanned} / ${totalGems}`} />
-          <Stat label="Con precio"  value={totalWithPrice}              accent />
+          <Stat label="Con precio"  value={totalWithPrice}               accent />
           <Stat label="Sin oferta"  value={totalScanned - totalWithPrice} dim />
           {staleCount   > 0 && <Stat label="Obsoletas"  value={staleCount}   warn />}
           {pendingCount > 0 && <Stat label="Pendientes" value={pendingCount} warn />}
@@ -465,7 +358,6 @@ export default function Tracker() {
                 return (
                   <tr key={gem.gem_type} style={{ opacity: hasPrice ? 1 : 0.45 }}>
 
-                    {/* Nombre */}
                     <td>
                       <span
                         title={namesDiffer ? `EN: ${gem.gem_type}` : undefined}
@@ -475,7 +367,6 @@ export default function Tracker() {
                       </span>
                     </td>
 
-                    {/* Categoría */}
                     <td>
                       <span style={{
                         fontSize: '0.75rem', fontWeight: 600, color: catColor,
@@ -486,26 +377,28 @@ export default function Tracker() {
                       </span>
                     </td>
 
-                    {/* Precio */}
                     <td>
                       {hasPrice ? (
-                        <strong style={{ color: 'var(--accent)', fontSize: '1rem' }}>
-                          {gem.cheapest_price}
-                          <span style={{ fontSize: '0.75rem', fontWeight: 400, marginLeft: '0.3rem', color: 'var(--text-secondary)' }}>
-                            {gem.currency}
-                          </span>
-                        </strong>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.15rem' }}>
+                          <strong style={{ color: 'var(--accent)', fontSize: '1rem' }}>
+                            {gem.cheapest_price}
+                          </strong>
+                          <CurrencyBadge currency={gem.currency} />
+                          {gem.currency === 'annulment' && (
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginLeft: 2 }}>
+                              ≈{(gem.cheapest_price * ANNULMENT_TO_DIVINE).toFixed(2)}◈
+                            </span>
+                          )}
+                        </span>
                       ) : (
                         <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Sin oferta</span>
                       )}
                     </td>
 
-                    {/* Listados */}
                     <td style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
                       {gem.total_listings > 0 ? gem.total_listings : '—'}
                     </td>
 
-                    {/* Vendedor con OnlineDot */}
                     <td>
                       {gem.seller ? (
                         <SellerBadge
@@ -519,7 +412,6 @@ export default function Tracker() {
                       )}
                     </td>
 
-                    {/* Actualización */}
                     <td style={{
                       fontSize: '0.75rem',
                       color: rowStale ? '#f59e0b' : 'var(--text-secondary)',
@@ -546,18 +438,5 @@ export default function Tracker() {
         <div className="empty-state">Sin resultados para el filtro actual.</div>
       )}
     </div>
-  )
-}
-
-function Stat({ label, value, accent, dim, warn }) {
-  const color = warn   ? '#f59e0b'
-              : accent ? 'var(--accent)'
-              : dim    ? 'var(--text-secondary)'
-              : 'var(--text-primary)'
-  return (
-    <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-      {label}:{' '}
-      <strong style={{ color }}>{value}</strong>
-    </span>
   )
 }

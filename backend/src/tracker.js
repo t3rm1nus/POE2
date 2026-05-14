@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('./db');
-const { searchItems, fetchListings } = require('./poeApiClient');
+const { searchItems, fetchListings, normalizePrice } = require('./poeApiClient');
 
 const CACHE_MAX_AGE_HOURS = 24;
 
@@ -31,6 +31,11 @@ const GEMS = [
     { type: 'Freezing Mark',           cat: 'Arco' },
     { type: "Sniper's Mark",           cat: 'Arco' },
     { type: 'Voltaic Mark',            cat: 'Arco' },
+    { type: 'Plague Bearer',           cat: 'Arco' },
+    { type: 'Alchemist\'s Blessing',   cat: 'Arco' },
+    { type: 'Herald of Plague',        cat: 'Arco' },
+    { type: 'Paralyzing Arrow',        cat: 'Arco' },
+
     // Bastón
     { type: 'Charged Staff',           cat: 'Bastón' },
     { type: 'Killing Palm',            cat: 'Bastón' },
@@ -48,8 +53,18 @@ const GEMS = [
     { type: 'Hand of Chayula',         cat: 'Bastón' },
     { type: 'Shattering Palm',         cat: 'Bastón' },
     { type: 'Thunderstorm',            cat: 'Bastón' },
-    { type: 'Snap',                    cat: 'Bastón' },
+    { type: 'Snap',                    cat: 'Elemental' },
     { type: 'Falling Thunder',         cat: 'Bastón' },
+    { type: 'Wave of Frost',           cat: 'Bastón' },
+    { type: 'Flicker Strike',          cat: 'Bastón' },
+    { type: 'Wind Strike',             cat: 'Bastón' },
+    { type: 'Destabilising Palm',      cat: 'Bastón' },
+    { type: 'Rushing Assault',         cat: 'Bastón' },
+    { type: 'Drain Strike',            cat: 'Bastón' },
+    { type: 'Ruin',                    cat: 'Bastón' },
+    { type: 'Thunder Clap',            cat: 'Bastón' },
+    { type: 'Gathering Storm',         cat: 'Bastón' },
+
     // Ocultismo
     { type: 'Skeletal Sniper',         cat: 'Ocultismo' },
     { type: 'Unearth',                 cat: 'Ocultismo' },
@@ -74,6 +89,10 @@ const GEMS = [
     { type: 'Skeletal Brute',          cat: 'Ocultismo' },
     { type: 'Skeletal Cleric',         cat: 'Ocultismo' },
     { type: 'Soul Offering',           cat: 'Ocultismo' },
+    { type: 'Enervate',                cat: 'Ocultismo' },
+    { type: 'Skeletal Pyromancer',     cat: 'Ocultismo' },
+    { type: 'Malefic Blast',           cat: 'Ocultismo' },
+
     // Primalismo
     { type: 'Volcano',                 cat: 'Primalismo' },
     { type: 'Entangle',                cat: 'Primalismo' },
@@ -93,6 +112,18 @@ const GEMS = [
     { type: 'Lunar Blessing',          cat: 'Primalismo' },
     { type: 'Walking Calamity',        cat: 'Primalismo' },
     { type: 'Furious Slam',            cat: 'Primalismo' },
+    { type: 'Furious Assault',         cat: 'Primalismo' },
+    { type: 'Snare',                   cat: 'Primalismo' },
+    { type: 'Seismic Totem',           cat: 'Primalismo' },
+    { type: 'Magma Orb',               cat: 'Primalismo' },
+    { type: 'Charge',                  cat: 'Primalismo' },
+    { type: 'Winged Explosion',        cat: 'Primalismo' },
+    { type: 'Rolling Thunder',         cat: 'Primalismo' },
+    { type: 'Mountain Fury',           cat: 'Primalismo' },
+    { type: 'Savage Cry',              cat: 'Primalismo' },
+    { type: 'Crosscut',                cat: 'Primalismo' },
+    { type: 'Carnivorous Shrine',      cat: 'Primalismo' },
+
     // Maza
     { type: 'Earthquake',              cat: 'Maza' },
     { type: 'Boneshatter',             cat: 'Maza' },
@@ -105,8 +136,9 @@ const GEMS = [
     { type: 'Resonating Shield',       cat: 'Maza' },
     { type: 'Leap Slam',               cat: 'Maza' },
     { type: 'Volcanic Fissure',        cat: 'Maza' },
-    { type: 'Iron Ward',               cat: 'Maza' },
+    { type: 'Shield Wall',             cat: 'Maza' },
     { type: 'Earthshatter',            cat: 'Maza' },
+    { type: 'Impending Doom',          cat: 'Maza' },
     { type: 'Fortifying Cry',          cat: 'Maza' },
     { type: 'Forge Hammer',            cat: 'Maza' },
     { type: 'Seismic Cry',             cat: 'Maza' },
@@ -115,6 +147,10 @@ const GEMS = [
     { type: 'Ancestral Warrior Totem', cat: 'Maza' },
     { type: 'Hammer of the Gods',      cat: 'Maza' },
     { type: 'Ancestral Cry',           cat: 'Maza' },
+    { type: 'Seismic Focus',           cat: 'Maza' },
+    { type: 'Bulwark',                 cat: 'Maza' },
+    { type: 'Fissure',                 cat: 'Maza' },
+
     // Ballesta
     { type: 'Fragmentation Rounds',    cat: 'Ballesta' },
     { type: 'Armour Piercing Rounds',  cat: 'Ballesta' },
@@ -139,6 +175,12 @@ const GEMS = [
     { type: 'Siege Cascade',           cat: 'Ballesta' },
     { type: 'Plasma Blast',            cat: 'Ballesta' },
     { type: 'Cluster Grenade',         cat: 'Ballesta' },
+    { type: 'Stun Grenade',            cat: 'Ballesta' },
+    { type: 'Rapid Fire',              cat: 'Ballesta' },
+    { type: 'Explosive Storm Rounds',  cat: 'Ballesta' },
+    { type: 'Electric Burst Rounds',   cat: 'Ballesta' },
+    { type: 'Mortar Round',            cat: 'Ballesta' },
+
     // Lanza
     { type: 'Escape Shot',             cat: 'Lanza' },
     { type: 'Whirling Slash',          cat: 'Lanza' },
@@ -158,12 +200,50 @@ const GEMS = [
     { type: 'Elemental Sundering',     cat: 'Lanza' },
     { type: "Wind Serpent's Fury",     cat: 'Lanza' },
     { type: 'Spear of Solaris',        cat: 'Lanza' },
-    // Heraldo (categoría Soporte)
+    { type: 'Recoil',                  cat: 'Lanza' },
+    { type: 'Whirlwind',               cat: 'Lanza' },
+    { type: 'Execute',                 cat: 'Lanza' },
+    { type: 'Slash',                   cat: 'Lanza' },
+    { type: 'Storm Thrust',            cat: 'Lanza' },
+    { type: 'Glacial Thrust',          cat: 'Lanza' },
+    { type: 'Whirlwind Thrust',        cat: 'Lanza' },
+
+    // Elemental
+    { type: 'Flame Wall',             cat: 'Elemental' },
+    { type: 'Ice Nova',          cat: 'Elemental' },
+    { type: 'Frost Bomb',         cat: 'Elemental' },
+    { type: 'Spark',         cat: 'Elemental' },
+    { type: 'Fireball',         cat: 'Elemental' },
+    { type: 'Living Bomb',          cat: 'Elemental' },
+    { type: 'Frost Darts',          cat: 'Elemental' },
+    { type: 'Orb of Storms',              cat: 'Elemental' },
+    { type: 'Ember Fusillade',             cat: 'Elemental' },
+    { type: 'Frostbolt',              cat: 'Elemental' },
+    { type: 'Arc',           cat: 'Elemental' },
+    { type: 'Temporal Chains',         cat: 'Elemental' },
+    { type: "Elemental Weakness",       cat: 'Elemental' },
+    { type: 'Mana Tempest',              cat: 'Elemental' },
+    { type: 'Incinerate',         cat: 'Elemental' },
+    { type: 'Lightning Warp',     cat: 'Elemental' },
+    { type: "Firestorm",     cat: 'Elemental' },
+    { type: 'Comet',        cat: 'Elemental' },
+    { type: 'Ball Lightning',                  cat: 'Elemental' },
+    { type: 'Flameblast',               cat: 'Elemental' },
+    { type: 'Eye of Winter',                 cat: 'Elemental' },
+    { type: 'Lightning Conduit',                   cat: 'Elemental' },
+    { type: 'Solar Orb',            cat: 'Elemental' },
+    { type: '',          cat: 'Elemental' },
+    { type: '',        cat: 'Elemental' },
+
+
+    // Heraldo
     { type: 'Herald of Blood',         cat: 'Soporte' },
     { type: 'Herald of Ice',           cat: 'Soporte' },
     { type: 'Herald of Thunder',       cat: 'Soporte' },
     { type: 'Herald of Ash',           cat: 'Soporte' },
+
     // Soporte
+    { type: 'Iron Ward',               cat: 'Soporte' },
     { type: 'Trinity',                 cat: 'Soporte' },
     { type: 'Archmage',                cat: 'Soporte' },
     { type: 'Savage Fury',             cat: 'Soporte' },
@@ -200,13 +280,17 @@ const GEMS = [
     { type: 'Eternal Rage',            cat: 'Soporte' },
     { type: 'Magma Barrier',           cat: 'Soporte' },
     { type: 'Scavenged Plating',       cat: 'Soporte' },
-    { type: 'Shield Wall',             cat: 'Soporte' },
     { type: 'Ghost Dance',             cat: 'Soporte' },
     { type: 'Attrition',               cat: 'Soporte' },
     { type: 'Shard Scavenger',         cat: 'Soporte' },
     { type: 'Combat Frenzy',           cat: 'Soporte' },
     { type: 'Trail of Caltrops',       cat: 'Soporte' },
     { type: 'Rhoa Mount',              cat: 'Soporte' },
+    { type: 'Thorn Zone',              cat: 'Soporte' },
+    { type: 'Wild Fury',               cat: 'Soporte' },
+    { type: 'Phantom Archer',          cat: 'Soporte' },
+    { type: 'Savagery',                cat: 'Soporte' },
+    { type: 'Iron Barrier',            cat: 'Soporte' },
 ];
 
 // ─── GET /api/tracker/gems ────────────────────────────────────────────────────
@@ -297,26 +381,28 @@ router.get('/scan', async (req, res) => {
     try {
       send({ status: 'scanning', gem_type: gem.type, category: gem.cat, progress: done, total: gemsToScan.length });
 
+      // ── Sin filtro de divisa: acepta divine Y annulment ─────────────────
+      // (price: 'divine' eliminado — filtramos y normalizamos en local)
       const query = {
         query: {
-          type: gem.type,
+          type:   gem.type,
           stats:  [{ type: 'and', filters: [], disabled: true }],
           status: { option: 'securable' },
           filters: {
             misc_filters: {
               filters: { gem_level: { min: 21 }, gem_sockets: { min: 5 } },
-              disabled: false
+              disabled: false,
             },
             trade_filters: {
               filters: {
-                price:     { option: 'divine' },
                 sale_type: { option: 'priced' },
+                // price: { option: 'divine' }  ← eliminado para incluir annulment
               },
-              disabled: false
-            }
-          }
+              disabled: false,
+            },
+          },
         },
-        sort: { price: 'asc' }
+        sort: { price: 'asc' },
       };
 
       const search = await searchItems(query, { league, realm });
@@ -330,10 +416,27 @@ router.get('/scan', async (req, res) => {
           const batch = search.result.slice(i * 10, (i + 1) * 10);
           if (batch.length === 0) break;
 
-          const fetched  = await fetchListings(batch, search.id, { realm });
+          const fetched = await fetchListings(batch, search.id, { realm });
+
+          // ── Filtrar divine/annulment, normalizar, ordenar por norm ──────
+          // ✅ DESPUÉS
           const filtered = (fetched.result || [])
-            .filter(l => l?.listing?.price)
-            .sort((a, b) => a.listing.price.amount - b.listing.price.amount);
+          .filter(l => {
+            const c = l?.listing?.price?.currency;
+            return c === 'divine' || c === 'annulment' || c === 'annul';
+          })
+          .map(l => {
+            // Normalizar 'annul' → 'annulment' igual que hace analyzePrices
+            const rawCurrency = l.listing.price.currency;
+            const currency = rawCurrency === 'annul' ? 'annulment' : rawCurrency;
+            return {
+              ...l,
+              listing: { ...l.listing, price: { ...l.listing.price, currency } },
+              _normPrice: normalizePrice(l.listing.price.amount, currency),
+            };
+          })
+          .filter(l => l._normPrice !== null)
+          .sort((a, b) => a._normPrice - b._normPrice);
 
           if (filtered.length > 0) {
             cheapest = filtered[0];
@@ -346,16 +449,18 @@ router.get('/scan', async (req, res) => {
       const currency = cheapest?.listing?.price?.currency ?? 'divine';
       const seller   = cheapest?.listing?.account?.name   ?? null;
       const indexed  = cheapest?.listing?.indexed         ?? null;
+
       const isOwnAccount =
         process.env.POE_ACCOUNT &&
         seller?.toLowerCase() === process.env.POE_ACCOUNT.toLowerCase();
 
-      const onlineField   = cheapest?.listing?.account?.online
+      const onlineField   = cheapest?.listing?.account?.online;
       const seller_online = isOwnAccount
         ? 'online'
         : onlineField && typeof onlineField === 'object' ? 'online'
         : onlineField === null || onlineField === undefined ? 'unknown'
-        : 'offline'
+        : 'offline';
+
       db.prepare(`
         INSERT INTO gem_market_prices
           (gem_type, realm, league, category, cheapest_price, currency,
@@ -374,16 +479,16 @@ router.get('/scan', async (req, res) => {
 
       done++;
       send({
-        status: 'gem_done',
-        gem_type: gem.type,
-        category: gem.cat,
+        status:         'gem_done',
+        gem_type:       gem.type,
+        category:       gem.cat,
         price,
         currency,
         seller,
         seller_online,
         total_listings,
-        progress: done,
-        total: gemsToScan.length
+        progress:       done,
+        total:          gemsToScan.length,
       });
 
     } catch (err) {
@@ -392,11 +497,11 @@ router.get('/scan', async (req, res) => {
 
       done++;
       send({
-        status: 'gem_error',
+        status:   'gem_error',
         gem_type: gem.type,
-        error: err.message,
+        error:    err.message,
         progress: done,
-        total: gemsToScan.length
+        total:    gemsToScan.length,
       });
     }
   }
@@ -410,7 +515,6 @@ router.delete('/gems', (req, res) => {
   const realm  = req.query.realm  || null;
   const league = req.query.league || null;
 
-  // Si se pasan realm/league solo borra esa combinación; si no, todo
   if (realm && league) {
     db.prepare('DELETE FROM gem_market_prices WHERE realm=? AND league=?').run(realm, league);
   } else {

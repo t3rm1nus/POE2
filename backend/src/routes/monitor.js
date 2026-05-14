@@ -4,16 +4,18 @@ const db = require('../db');
 const { analyzePrices } = require('../poeApiClient');
 const { GEMS } = require('../tracker');
 
+// 2 annulment = 1 divine
+const ANN_TO_DIV = 0.5;
+
+function itemNormPrice(price, currency) {
+  if (currency === 'annulment') return price * ANN_TO_DIV;
+  return price; // divine
+}
+
 // ─── Helper: normalizar campo online de la API de GGG ────────────────────────
-// account.online puede ser:
-//   { status: "online" }  → online visible
-//   null / undefined      → offline O privacidad activada (indistinguible sin fetch directo)
-//   ausente               → offline
-// Devuelve: 'online' | 'unknown' | 'offline'
 function parseOnlineStatus(onlineField) {
   if (onlineField && typeof onlineField === 'object') return 'online';
   if (onlineField === null || onlineField === undefined) return 'unknown';
-  // boolean legacy por si acaso
   if (onlineField === true)  return 'online';
   if (onlineField === false) return 'offline';
   return 'unknown';
@@ -131,7 +133,9 @@ router.get('/check', async (req, res) => {
       if (!query.query.filters.trade_filters) {
         query.query.filters.trade_filters = { filters: {}, disabled: false };
       }
+      // Solo precio fijado; la divisa (divine/annulment) se filtra en poeApiClient
       query.query.filters.trade_filters.filters.sale_type = { option: 'priced' };
+      delete query.query.filters.trade_filters.filters.price; // acepta divine Y annulment
       query.query.filters.trade_filters.disabled = false;
 
       if (item.category === 'gem') {
@@ -156,7 +160,13 @@ router.get('/check', async (req, res) => {
         send({ status: 'checking', progress: checkedTypes, total: totalTypes, message: `Comprobando ${item.name}...` });
       }
 
-      const { cheapestOther, myListings, myMinPrice, otherMinPrice, marketTotal } = priceData;
+      const {
+        cheapestOther,
+        myListings,
+        myMinPrice,    myMinCurrency,    myMinNormPrice,
+        otherMinPrice, otherMinCurrency, otherMinNormPrice,
+        marketTotal,
+      } = priceData;
 
       // ── Caso: sin datos ───────────────────────────────────────────────────
       if (!cheapestOther && myListings.length === 0) {
@@ -165,6 +175,8 @@ router.get('/check', async (req, res) => {
           myPrice:          item.my_price,
           myCurrency:       item.currency,
           marketMin:        null,
+          marketNormMin:    null,
+          marketCurrency:   null,
           marketTotal:      0,
           isMinPrice:       true,
           tied:             false,
@@ -177,33 +189,35 @@ router.get('/check', async (req, res) => {
         continue;
       }
 
-      const marketMin        = otherMinPrice;
-      const marketCurrency   = cheapestOther?.listing?.price?.currency ?? item.currency;
-      const cheaperOwnExists = myMinPrice !== null && item.my_price > myMinPrice;
+      const marketMin      = otherMinPrice;
+      const marketNormMin  = otherMinNormPrice;
+      const marketCurrency = otherMinCurrency ?? cheapestOther?.listing?.price?.currency ?? item.currency;
 
-      const effectiveMyPrice = myMinPrice !== null ? myMinPrice : item.my_price;
-      const isMinPrice       = marketMin === null || effectiveMyPrice <= marketMin;
-      const tied             = isMinPrice && !cheaperOwnExists && marketMin !== null && effectiveMyPrice === marketMin;
-      const cheapestSeller   = cheapestOther?.listing?.account?.name ?? null;
+      // ── Comparaciones siempre sobre precios normalizados a divine ─────────
+      const storedNormPrice    = itemNormPrice(item.my_price, item.currency);
+      const cheaperOwnExists   = myMinNormPrice !== null && storedNormPrice > myMinNormPrice;
+      const effectiveNormPrice = myMinNormPrice !== null ? myMinNormPrice : storedNormPrice;
 
-      // ── Estado online: tres valores posibles ─────────────────────────────
-      // 'online'  → account.online es un objeto (GGG lo devuelve así cuando está online)
-      // 'unknown' → null/undefined (offline real O privacidad activada, indistinguible)
-      // 'offline' → false explícito (raro en la API, pero por si acaso)
+      const isMinPrice = marketNormMin === null || effectiveNormPrice <= marketNormMin;
+      const tied       = isMinPrice && !cheaperOwnExists && marketNormMin !== null
+                      && effectiveNormPrice === marketNormMin;
+
+      const cheapestSeller      = cheapestOther?.listing?.account?.name ?? null;
       const cheapestOnlineStatus = parseOnlineStatus(cheapestOther?.listing?.account?.online);
+      const noActiveListings    = myListings.length === 0;
 
       console.log(
-        `[monitor/check] ${cheapestSeller} → online raw:`,
-        JSON.stringify(cheapestOther?.listing?.account?.online),
-        '→ status:', cheapestOnlineStatus
+        `[monitor/check] ${item.name} | myNorm=${effectiveNormPrice} mktNorm=${marketNormMin}`,
+        `isMin=${isMinPrice} tied=${tied} | mkt: ${marketMin} ${marketCurrency}`,
+        `| ${cheapestSeller} online=${cheapestOnlineStatus}`
       );
-
-      const noActiveListings = myListings.length === 0;
 
       // Auto-sincronizar DB cuando el precio activo difiere del guardado
       if (cheaperOwnExists && myMinPrice !== null) {
-        db.prepare('UPDATE monitor_items SET my_price = ? WHERE id = ?').run(myMinPrice, item.id);
+        db.prepare('UPDATE monitor_items SET my_price = ?, currency = ? WHERE id = ?')
+          .run(myMinPrice, myMinCurrency ?? item.currency, item.id);
         item.my_price = myMinPrice;
+        item.currency = myMinCurrency ?? item.currency;
         console.log(`[monitor/check] Precio actualizado: ${item.name} → ${myMinPrice} ${item.currency}`);
       }
 
@@ -211,16 +225,19 @@ router.get('/check', async (req, res) => {
         item:             item.name,
         myPrice:          item.my_price,
         myCurrency:       item.currency,
+        myNormPrice:      effectiveNormPrice,
         marketMin,
+        marketNormMin,
         marketCurrency,
         marketTotal:      marketTotal ?? 0,
         myActiveMin:      myMinPrice,
+        myActiveCurrency: myMinCurrency ?? item.currency,
         cheaperOwnExists,
         isMinPrice:       noActiveListings ? false : isMinPrice,
         tied:             noActiveListings ? false : tied,
         noActiveListings,
         cheapestSeller,
-        cheapestOnline:   cheapestOnlineStatus,           // 'online'|'unknown'|'offline'
+        cheapestOnline:   cheapestOnlineStatus,
         tiedSeller: tied ? {
           seller: cheapestSeller,
           online: cheapestOnlineStatus,
@@ -230,6 +247,7 @@ router.get('/check', async (req, res) => {
         cheaper: (noActiveListings || !isMinPrice) ? [{
           seller:   cheapestSeller,
           price:    marketMin,
+          normPrice: marketNormMin,
           currency: marketCurrency,
           online:   cheapestOnlineStatus,
         }] : [],
@@ -241,10 +259,9 @@ router.get('/check', async (req, res) => {
       const category = gemInfo?.cat ?? cached?.category ?? 'item';
 
       const efectivaIsMinPrice = !noActiveListings && isMinPrice;
-      const trackerPrice       = efectivaIsMinPrice ? myMinPrice : marketMin;
-      const trackerCurrency    = efectivaIsMinPrice
-        ? (myListings[0]?.listing?.price?.currency ?? item.currency)
-        : marketCurrency;
+      // Guardar precio raw + currency para display correcto en Tracker
+      const trackerPrice    = efectivaIsMinPrice ? myMinPrice    : marketMin;
+      const trackerCurrency = efectivaIsMinPrice ? (myMinCurrency ?? item.currency) : marketCurrency;
 
       if (noActiveListings) {
         if (cheapestOther && otherMinPrice !== null) {
@@ -263,8 +280,7 @@ router.get('/check', async (req, res) => {
               fetched_at     = excluded.fetched_at
           `).run(
             type, realm, league, category, otherMinPrice, marketCurrency,
-            cheapestSeller,
-            cheapestOnlineStatus,           // 'online'|'unknown'|'offline'
+            cheapestSeller, cheapestOnlineStatus,
             cheapestOther.listing?.indexed ?? null,
             marketTotal ?? 0
           );
@@ -278,13 +294,13 @@ router.get('/check', async (req, res) => {
 
         if (efectivaIsMinPrice && myListings.length > 0) {
           const myListing = myListings.find(l => l.listing.price.amount === myMinPrice) ?? myListings[0];
-          trackerSeller   = myListing.listing.account.name ?? myAccount;
-          trackerOnline   = 'online';       // yo mismo siempre estoy online si tengo listing activo
-          trackerIndexed  = myListing.listing.indexed ?? null;
+          trackerSeller  = myListing.listing.account.name ?? myAccount;
+          trackerOnline  = 'online';
+          trackerIndexed = myListing.listing.indexed ?? null;
         } else {
-          trackerSeller   = cheapestSeller;
-          trackerOnline   = cheapestOnlineStatus;
-          trackerIndexed  = cheapestOther?.listing?.indexed ?? null;
+          trackerSeller  = cheapestSeller;
+          trackerOnline  = cheapestOnlineStatus;
+          trackerIndexed = cheapestOther?.listing?.indexed ?? null;
         }
 
         db.prepare(`
@@ -303,7 +319,7 @@ router.get('/check', async (req, res) => {
         `).run(type, realm, league, category, trackerPrice, trackerCurrency,
                trackerSeller, trackerOnline, trackerIndexed, marketTotal ?? 0);
 
-        console.log(`[monitor/check] Tracker actualizado: ${type} → ${trackerPrice} ${trackerCurrency} (${efectivaIsMinPrice ? 'soy el más barato' : 'hay más baratos'}) seller_online=${trackerOnline}`);
+        console.log(`[monitor/check] Tracker: ${type} → ${trackerPrice} ${trackerCurrency} seller_online=${trackerOnline}`);
       }
 
     } catch (err) {

@@ -42,9 +42,32 @@ export default function Stocks({ user, onBack }) {
   const [progress, setProgress] = useState(null)   // { message, current, total }
   const [loaded,   setLoaded]   = useState(false)
   const [error,    setError]    = useState(null)
-
+  const [divineRate, setDivineRate] = useState(
+    () => parseFloat(localStorage.getItem('poe2_divine_rate') || '300')
+  )
   const eventSrc = useRef(null)
-
+  const saveDivineRate = (v) => {
+    const n = parseFloat(v)
+    if (!isNaN(n) && n > 0) {
+      setDivineRate(n)
+      localStorage.getItem('poe2_divine_rate')   // solo para leer
+      localStorage.setItem('poe2_divine_rate', n)
+    }
+  }
+  
+  // Helper de conversión
+  const toDivine = (price, currency) => {
+    if (!price) return null
+    if (currency === 'divine')  return price
+    if (currency === 'chaos')   return price / divineRate
+    if (currency === 'exalted') return price / divineRate // ajusta si hace falta
+    return price
+  }
+  
+  const fmtDiv = (price, currency) => {
+    const d = toDivine(price, currency)
+    return d !== null ? d.toFixed(2) : '?'
+  }
   // ── SSE: progreso del escaneo de backend ───────────────────────────────────
   const connectSSE = useCallback(() => {
     if (eventSrc.current) eventSrc.current.close()
@@ -275,20 +298,39 @@ export default function Stocks({ user, onBack }) {
             <span className="stat-value">{stocks.length}</span>
             <span className="stat-label">Listings totales</span>
           </div>
+          {/* DESPUÉS */}
           {minPrice !== null && (
             <div className="stat-chip" style={{ borderColor: '#4ade8040' }}>
               <span className="stat-value" style={{ color: '#4ade80' }}>
-                {minPrice.toFixed(1)} ◈
+                {fmtDiv(minPrice, stocks.find(s => s.price === minPrice)?.currency)} ◈
               </span>
               <span className="stat-label">Precio mínimo</span>
             </div>
           )}
           {maxPrice !== null && (
             <div className="stat-chip">
-              <span className="stat-value">{maxPrice.toFixed(1)} ◈</span>
+              <span className="stat-value">
+                {fmtDiv(maxPrice, stocks.find(s => s.price === maxPrice)?.currency)} ◈
+              </span>
               <span className="stat-label">Precio máximo</span>
             </div>
           )}
+
+          {/* Input tasa divine/chaos */}
+          <div className="stat-chip" style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <span className="stat-label">1◈ =</span>
+            <input
+              type="number"
+              value={divineRate}
+              min={1}
+              onChange={e => saveDivineRate(e.target.value)}
+              style={{
+                width: 60, background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                borderRadius: 4, color: 'var(--text-primary)', padding: '2px 6px', fontSize: 13,
+              }}
+            />
+            <span className="stat-label">chaos</span>
+          </div>
         </div>
       )}
 
@@ -358,39 +400,39 @@ export default function Stocks({ user, onBack }) {
 
                     {/* Mínimo */}
                     <td style={{ color: '#4ade80', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                      {minL.price}
-                      <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginLeft: 2 }}>
-                        {minL.currency}
+                      {fmtDiv(minL.price, minL.currency)} ◈
+                      <span style={{ fontSize: 10, color: 'var(--text-secondary)', marginLeft: 3 }}>
+                        ({minL.price} {minL.currency})
                       </span>
                     </td>
 
                     {/* Máximo */}
                     <td style={{ color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                      {maxL.price}
-                      <span style={{ fontSize: 11, marginLeft: 2 }}>
-                        {maxL.currency}
+                      {fmtDiv(maxL.price, maxL.currency)} ◈
+                      <span style={{ fontSize: 10, marginLeft: 3 }}>
+                        ({maxL.price} {maxL.currency})
                       </span>
                     </td>
 
                     {/* Todos los precios */}
                     <td>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                        {group.listings.map((l, i) => (
-                          <span key={i} style={{
-                            background:   i === 0 ? 'rgba(74,222,128,0.1)' : 'var(--bg-elevated)',
-                            border:       `1px solid ${i === 0 ? '#4ade8060' : 'var(--border)'}`,
-                            borderRadius: 4,
-                            padding:      '2px 7px',
-                            fontSize:     12,
-                            fontWeight:   i === 0 ? 600 : 400,
-                            color:        i === 0 ? '#4ade80' : 'var(--text-primary)',
-                          }}>
-                            {l.price}
-                            <span style={{ fontSize: 10, color: 'var(--text-secondary)', marginLeft: 2 }}>
-                              {l.currency}
-                            </span>
+                      {group.listings.map((l, i) => (
+                        <span key={i} style={{
+                          background:   i === 0 ? 'rgba(74,222,128,0.1)' : 'var(--bg-elevated)',
+                          border:       `1px solid ${i === 0 ? '#4ade8060' : 'var(--border)'}`,
+                          borderRadius: 4,
+                          padding:      '2px 7px',
+                          fontSize:     12,
+                          fontWeight:   i === 0 ? 600 : 400,
+                          color:        i === 0 ? '#4ade80' : 'var(--text-primary)',
+                        }}>
+                          {fmtDiv(l.price, l.currency)}◈
+                          <span style={{ fontSize: 10, color: 'var(--text-secondary)', marginLeft: 3 }}>
+                            ({l.price}{l.currency === 'divine' ? 'd' : 'c'})
                           </span>
-                        ))}
+                        </span>
+                      ))}
                       </div>
                     </td>
                   </tr>

@@ -10,6 +10,17 @@ const DELAY_MS = 8000;
 const { GEMS } = require('../tracker');
 const gemCatMap = Object.fromEntries(GEMS.map(g => [g.type, g.cat]));
 
+// 2 annulment = 1 divine
+const ANN_TO_DIV = 0.5;
+
+function normalizePrice(amount, currency) {
+  if (amount == null) return null;
+  if (currency === 'divine')    return amount;
+  if (currency === 'annulment' || currency === 'annul')  return amount * ANN_TO_DIV;
+
+  return null;
+}
+
 function getHeaders() {
   return {
     'User-Agent': 'POE2MarketWatcher/1.0 (personal tool)',
@@ -60,6 +71,7 @@ router.get('/listings', async (req, res) => {
 
     send({ status: 'searching', message: 'Buscando tus listings...' });
 
+    // Sin filtro de divisa: traemos TODOS los listings del account y filtramos en local
     const searchRes = await axios.post(
       `${BASE_URL}/search/poe2/${league}`,
       {
@@ -68,7 +80,6 @@ router.get('/listings', async (req, res) => {
             trade_filters: {
               filters: {
                 account: { input: account },
-                price: { option: 'divine' }
               }
             },
             misc_filters: {
@@ -82,27 +93,22 @@ router.get('/listings', async (req, res) => {
         }
       },
       {
-        headers: {
-          ...getHeaders(),
-          // realm se pasa como query param en la URL para PlayStation
-          ...(realm === 'sony' ? {} : {})
-        },
+        headers: getHeaders(),
         params: realm === 'sony' ? { realm: 'sony' } : {}
       }
     );
 
     const { id: queryId, result: allIds, total } = searchRes.data;
     send({ status: 'found', total, message: `${total} listings encontrados` });
+    console.log(`[import] Busqueda devolvio ${total} listings para account=${account}`);
 
     if (!allIds || allIds.length === 0) {
-      const existing = db.prepare('SELECT COUNT(*) as n FROM monitor_items').get().n
+      const existing = db.prepare('SELECT COUNT(*) as n FROM monitor_items').get().n;
       if (existing > 0) {
-        // La API devolvió 0 pero tenemos ítems guardados → probablemente error de sesión o liga
-        // No borramos nada para no perder datos por un fallo transitorio
         send({
           status: 'done',
           items: [],
-          warn: 'La API devolvió 0 listings. Si tienes gemas a la venta, comprueba tu POESESSID y la liga seleccionada.'
+          warn: 'La API devolvio 0 listings. Comprueba tu POESESSID y la liga seleccionada.'
         });
       } else {
         send({ status: 'done', items: [] });
@@ -130,17 +136,33 @@ router.get('/listings', async (req, res) => {
         if (!r?.listing?.price || !r?.item) continue;
 
         const currency = r.listing.price.currency;
-        if (currency !== 'divine') continue;
+        const amount   = r.listing.price.amount;
 
+        // DEBUG: loguear CADA listing — mira aqui para ver el currency real
+        console.log(`[import] RAW: type="${r.item.typeLine}" price=${amount} currency="${currency}"`);
+
+        // Variantes conocidas del orbe de anulacion en la API de GGG
+        const ANNULMENT_IDS = ['annulment', 'orb-of-annulment', 'annulment-orb', 'ann', 'annul'];
+        const isAnnulment = ANNULMENT_IDS.includes(currency);
+
+        if (currency !== 'divine' && !isAnnulment) {
+          console.log(`[import] SKIP: divisa no soportada "${currency}"`);
+          continue;
+        }
+
+        const normalizedCurrency = isAnnulment ? 'annulment' : 'divine';
         const rawName  = r.item.name     || r.item.typeLine;
         const rawType  = r.item.typeLine || r.item.baseType;
         const translatedName = await translateItemName(rawName || rawType);
 
+        console.log(`[import] OK: "${rawType}" | ${amount} ${normalizedCurrency}`);
+
         items.push({
           name:     translatedName,
           type:     rawType,
-          my_price: r.listing.price.amount,
-          currency: 'divine',
+          my_price: amount,
+          currency: normalizedCurrency,
+          normPrice: normalizePrice(amount, normalizedCurrency),
           category: 'gem',
         });
       }
@@ -148,12 +170,8 @@ router.get('/listings', async (req, res) => {
       if (i < chunks.length - 1) await sleep(DELAY_MS);
     }
 
-    // ─── Fuente de verdad: el import manda ──────────────────────────────────
-    // Borramos TODO y reinsertamos desde cero con los datos frescos de la API.
-    // Así los precios rebajados reemplazan a los anteriores sin dejar huérfanos,
-    // y los ítems que ya no aparecen (vendidos) desaparecen solos.
     db.prepare('DELETE FROM monitor_items').run();
-    console.log(`[import] monitor_items limpiado. Reimportando ${items.length} ítems...`);
+    console.log(`[import] monitor_items limpiado. Reimportando ${items.length} items...`);
 
     for (const item of items) {
       const query = {
@@ -167,7 +185,8 @@ router.get('/listings', async (req, res) => {
               disabled: false
             },
             trade_filters: {
-              filters: { price: { option: 'divine' } }
+              filters: { sale_type: { option: 'priced' } },
+              disabled: false
             }
           }
         },
@@ -178,33 +197,34 @@ router.get('/listings', async (req, res) => {
         'INSERT INTO monitor_items (name, category, query, my_price, currency) VALUES (?, ?, ?, ?, ?)'
       ).run(item.name, item.category, JSON.stringify(query), item.my_price, item.currency);
 
-      // ─── Actualizar caché del Tracker ──────────────────────────────────────
-      // Solo sobrescribimos gem_market_prices si nuestro precio es igual o más
-      // barato que el que había en caché (podría haber alguien más barato).
+      // Actualizar cache del Tracker
       const gemType     = item.type;
       const gemCategory = gemCatMap[gemType] || null;
-      const myPrice     = item.my_price;
+      const myNorm      = item.normPrice;
 
       const cached = db.prepare(
-        'SELECT cheapest_price FROM gem_market_prices WHERE gem_type = ? AND realm = ? AND league = ?'
+        'SELECT cheapest_price, currency FROM gem_market_prices WHERE gem_type = ? AND realm = ? AND league = ?'
       ).get(gemType, realm, league);
-      
-      if (!cached || cached.cheapest_price === null || myPrice <= cached.cheapest_price) {
+
+      const cachedNorm = cached ? normalizePrice(cached.cheapest_price, cached.currency) : null;
+
+      if (cachedNorm === null || myNorm <= cachedNorm) {
         db.prepare(`
           INSERT INTO gem_market_prices
             (gem_type, realm, league, category, cheapest_price, currency, seller, seller_online, total_listings, fetched_at)
-          VALUES (?, ?, ?, ?, ?, 'divine', ?, 'online', 1, datetime('now'))
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'online', 1, datetime('now'))
           ON CONFLICT(gem_type, realm, league) DO UPDATE SET
             category       = excluded.category,
             cheapest_price = excluded.cheapest_price,
+            currency       = excluded.currency,
             seller         = excluded.seller,
             seller_online  = 'online',
             fetched_at     = excluded.fetched_at
-        `).run(gemType, realm, league, gemCategory, myPrice, process.env.POE_ACCOUNT);
+        `).run(gemType, realm, league, gemCategory, item.my_price, item.currency, process.env.POE_ACCOUNT);
       }
     }
 
-    console.log(`[import] ${items.length} ítems guardados en monitor_items.`);
+    console.log(`[import] ${items.length} items guardados en monitor_items.`);
     send({ status: 'done', items });
     res.end();
 

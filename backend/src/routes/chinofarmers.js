@@ -21,7 +21,13 @@ const userState = new Map();
 {
   const rows = db.prepare('SELECT username, is_online FROM chinofarmers').all();
   for (const row of rows) {
-    userState.set(row.username, { is_online: row.is_online ?? 'unknown', initialized: false });
+    // Si hay cualquier estado guardado en DB (aunque sea 'offline'), lo consideramos
+    // conocido para que el primer poll pueda detectar cambios y disparar alertas.
+    const knownState = row.is_online !== null && row.is_online !== 'unknown';
+    userState.set(row.username, {
+      is_online:   row.is_online ?? 'unknown',
+      initialized: knownState,
+    });
   }
 }
 
@@ -62,10 +68,10 @@ async function pollAll() {
   console.log(`[chinofarmers] Iniciando poll de ${users.length} usuarios activos...`);
 
   for (const user of users) {
-    const prev      = userState.get(user.username) ?? { is_online: 'unknown', initialized: false };
-    const isOnline  = await checkUserOnline(user.username);
-    const now       = new Date().toISOString();
-    const lastSeen  = isOnline === 'online' ? now : (user.last_seen ?? null);
+    const prev     = userState.get(user.username) ?? { is_online: 'unknown', initialized: false };
+    const isOnline = await checkUserOnline(user.username);
+    const now      = new Date().toISOString();
+    const lastSeen = isOnline === 'online' ? now : (user.last_seen ?? null);
 
     db.prepare(`
       UPDATE chinofarmers
@@ -73,6 +79,12 @@ async function pollAll() {
       WHERE username = ?
     `).run(isOnline, now, lastSeen, user.username);
 
+    // Detectar cambios ANTES de actualizar el estado en memoria
+    const wasOnline  = prev.initialized && prev.is_online === 'online';
+    const nowOnline  = isOnline === 'online';
+    const wasOffline = prev.initialized && prev.is_online !== 'online';
+
+    // Actualizar estado en memoria (initialized siempre true tras el primer poll)
     userState.set(user.username, { is_online: isOnline, initialized: true });
 
     broadcast({
@@ -84,9 +96,22 @@ async function pollAll() {
       last_seen:    lastSeen,
     });
 
-    if (prev.initialized && prev.is_online === 'online' && isOnline === 'offline') {
-      console.log(`[chinofarmers] ${user.username} se acaba de desconectar.`);
+    // 🟢 Se acaba de conectar
+    if (wasOffline && nowOnline) {
+      console.log(`[chinofarmers] ✅ ${user.username} se acaba de conectar.`);
+      broadcast({ type: 'went_online', id: user.id, username: user.username });
+    }
+
+    // 🔴 Se acaba de desconectar
+    if (wasOnline && !nowOnline) {
+      console.log(`[chinofarmers] ❌ ${user.username} se acaba de desconectar.`);
       broadcast({ type: 'went_offline', id: user.id, username: user.username });
+    }
+
+    // Si era el primer poll (initialized era false), marcamos el estado pero sin alertar.
+    // En el siguiente ciclo ya funcionará correctamente.
+    if (!prev.initialized) {
+      console.log(`[chinofarmers] 🔍 Estado inicial de ${user.username}: ${isOnline}`);
     }
   }
 
@@ -200,12 +225,26 @@ async function runStockScan(username, realm, league) {
       const fetched = await fetchListings(chunks[i], search.id, { realm });
 
       for (const listing of fetched.result || []) {
-        if (!listing?.listing?.price || !listing?.item) continue;
+        if (!listing?.item) continue;
 
-        const price    = listing.listing.price.amount;
-        const currency = listing.listing.price.currency;
-        const gemType  = listing.item.typeLine || listing.item.baseType || '';
-        const gemName  = listing.item.name      || gemType;
+        let price    = listing.listing?.price?.amount   ?? null;
+        let currency = listing.listing?.price?.currency ?? null;
+
+        if (price === null && listing.item?.note) {
+          const m = listing.item.note.match(/[~]\S+\s+([\d.]+)\s+(\S+)/);
+          if (m) {
+            price    = parseFloat(m[1]);
+            currency = m[2];
+          }
+        }
+
+        if (price === null) {
+          console.warn(`[stocks] Listing sin precio detectado:`, JSON.stringify(listing.listing?.price), '| note:', listing.item?.note);
+          continue;
+        }
+
+        const gemType = listing.item.typeLine || listing.item.baseType || '';
+        const gemName = listing.item.name     || gemType;
 
         insertStmt.run(cf.id, username, gemType, gemName, price, currency, realm, league);
       }
@@ -229,7 +268,7 @@ async function runStockScan(username, realm, league) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ─── RUTAS BASE (chinofarmers) ────────────────────────────────────────────────
+// ─── RUTAS BASE (chinofarmers) ────────────────────────────────────════════════
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // GET /api/chinofarmers
@@ -260,11 +299,10 @@ router.post('/', (req, res) => {
   }
 });
 
-// DELETE /api/chinofarmers/:id  (solo IDs numéricos para no colisionar con /:username/stocks)
-// DESPUÉS
+// DELETE /api/chinofarmers/:id
 router.delete('/:id', (req, res) => {
-    if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'ID inválido' });
-    const user = db.prepare('SELECT * FROM chinofarmers WHERE id = ?').get(req.params.id);
+  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'ID inválido' });
+  const user = db.prepare('SELECT * FROM chinofarmers WHERE id = ?').get(req.params.id);
   if (!user) return res.status(404).json({ error: 'No encontrado' });
 
   db.prepare('DELETE FROM chinofarmers WHERE id = ?').run(req.params.id);
@@ -282,7 +320,12 @@ router.patch('/:id/active', (req, res) => {
   db.prepare('UPDATE chinofarmers SET active = ? WHERE id = ?').run(active, req.params.id);
 
   if (active) {
-    userState.set(user.username, { is_online: user.is_online ?? 'unknown', initialized: false });
+    // Al reactivar, usamos el estado guardado en DB como punto de partida conocido
+    const knownState = user.is_online !== null && user.is_online !== 'unknown';
+    userState.set(user.username, {
+      is_online:   user.is_online ?? 'unknown',
+      initialized: knownState,
+    });
   } else {
     userState.delete(user.username);
   }
@@ -338,7 +381,7 @@ router.get('/events', (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ─── RUTAS DE STOCKS ──────────────────────────────────────────────────────────
+// ─── RUTAS DE STOCKS ─────────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // GET /api/chinofarmers/:username/stocks
@@ -404,7 +447,6 @@ router.get('/:username/stocks/events', (req, res) => {
   res.setHeader('Connection',        'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
 
-  // Estado inicial
   res.write(`data: ${JSON.stringify({
     type:       'connected',
     isScanning: scanningUsers.has(username),

@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { useLeague } from '../LeagueContext'
+import { useChinofarmers } from '../ChinofarmersContext.jsx'
 
 const API = 'http://localhost:3001'
 
@@ -12,8 +13,8 @@ const INTERVALS = [
 
 function StatusLight({ status }) {
   const map = {
-    online:  { color: '#4ade80', shadow: '0 0 8px #4ade80', title: 'Online'  },
-    offline: { color: '#6b7280', shadow: 'none',            title: 'Offline' },
+    online:  { color: '#4ade80', shadow: '0 0 8px #4ade80',   title: 'Online'      },
+    offline: { color: '#6b7280', shadow: 'none',              title: 'Offline'     },
     unknown: { color: '#facc15', shadow: '0 0 8px #facc1580', title: 'Desconocido' },
   }
   const s = map[status] ?? map.unknown
@@ -21,13 +22,8 @@ function StatusLight({ status }) {
     <span
       title={s.title}
       style={{
-        display:      'inline-block',
-        width:        10,
-        height:       10,
-        borderRadius: '50%',
-        background:   s.color,
-        boxShadow:    s.shadow,
-        flexShrink:   0,
+        display: 'inline-block', width: 10, height: 10,
+        borderRadius: '50%', background: s.color, boxShadow: s.shadow, flexShrink: 0,
       }}
     />
   )
@@ -35,87 +31,13 @@ function StatusLight({ status }) {
 
 export default function Chinofarmers({ onViewStocks }) {
   const { realm, league } = useLeague()
+  const { users, polling, muted, setMuted } = useChinofarmers()
 
-  const [users,     setUsers]     = useState([])
-  const [input,     setInput]     = useState('')
-  const [interval,  setInterval2] = useState(5)
-  const [muted,     setMuted]     = useState(() => localStorage.getItem('cf_muted') === 'true')
-  const [error,     setError]     = useState(null)
-  const [polling,   setPolling]   = useState(false)
+  const [input,    setInput]     = useState('')
+  const [interval, setInterval2] = useState(5)
+  const [error,    setError]     = useState(null)
 
-  const mutedRef = useRef(muted)
-  const eventSrc = useRef(null)
-
-  useEffect(() => {
-    mutedRef.current = muted
-    localStorage.setItem('cf_muted', muted)
-  }, [muted])
-
-  // ── Voz ──────────────────────────────────────────────────────────────────
-  const speak = useCallback((text) => {
-    if (mutedRef.current) return
-    if (!window.speechSynthesis) return
-    window.speechSynthesis.cancel()
-    const utt = new SpeechSynthesisUtterance(text)
-    utt.lang  = 'es-ES'
-    utt.rate  = 0.95
-    window.speechSynthesis.speak(utt)
-  }, [])
-
-  // ── Conectar SSE ─────────────────────────────────────────────────────────
-  const connectSSE = useCallback(() => {
-    if (eventSrc.current) eventSrc.current.close()
-
-    const url = `${API}/api/chinofarmers/events?realm=${realm}&league=${encodeURIComponent(league)}`
-    const es  = new EventSource(url)
-    eventSrc.current = es
-
-    es.onmessage = (e) => {
-      let msg
-      try { msg = JSON.parse(e.data) } catch { return }
-
-      switch (msg.type) {
-        case 'init':
-          setUsers(msg.users)
-          break
-        case 'user_added':
-          setUsers(prev => [...prev, msg.user])
-          break
-        case 'user_deleted':
-          setUsers(prev => prev.filter(u => u.id !== msg.id))
-          break
-        case 'user_updated':
-          setUsers(prev => prev.map(u => u.id === msg.user.id ? msg.user : u))
-          break
-        case 'status_update':
-          setUsers(prev => prev.map(u =>
-            u.id === msg.id
-              ? { ...u, is_online: msg.is_online, last_checked: msg.last_checked, last_seen: msg.last_seen }
-              : u
-          ))
-          break
-        case 'went_offline':
-          speak(`el chinofarmer ${msg.username} se acaba de desconectar`)
-          break
-        case 'poll_start':
-          setPolling(true)
-          break
-        case 'poll_done':
-          setPolling(false)
-          break
-        default: break
-      }
-    }
-
-    es.onerror = () => {}
-  }, [realm, league, speak])
-
-  useEffect(() => {
-    connectSSE()
-    return () => eventSrc.current?.close()
-  }, [connectSSE])
-
-  // ── Sincronizar intervalo + realm/league al backend ───────────────────────
+  // Sincronizar intervalo + realm/league al backend
   useEffect(() => {
     fetch(`${API}/api/chinofarmers/interval`, {
       method:  'POST',
@@ -124,7 +46,6 @@ export default function Chinofarmers({ onViewStocks }) {
     }).catch(() => {})
   }, [interval, realm, league])
 
-  // ── Añadir usuario ────────────────────────────────────────────────────────
   const addUser = async () => {
     const username = input.trim()
     if (!username) return
@@ -143,7 +64,6 @@ export default function Chinofarmers({ onViewStocks }) {
     }
   }
 
-  // ── Toggle activo ─────────────────────────────────────────────────────────
   const toggleActive = async (user) => {
     await fetch(`${API}/api/chinofarmers/${user.id}/active`, {
       method:  'PATCH',
@@ -152,7 +72,6 @@ export default function Chinofarmers({ onViewStocks }) {
     })
   }
 
-  // ── Eliminar ──────────────────────────────────────────────────────────────
   const deleteUser = async (id) => {
     await fetch(`${API}/api/chinofarmers/${id}`, { method: 'DELETE' })
   }
@@ -172,7 +91,6 @@ export default function Chinofarmers({ onViewStocks }) {
         </div>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-          {/* Mute */}
           <button
             className={`btn btn--sm ${muted ? 'btn--danger' : 'btn--secondary'}`}
             onClick={() => setMuted(m => !m)}
@@ -181,7 +99,6 @@ export default function Chinofarmers({ onViewStocks }) {
             {muted ? '🔇 Silenciado' : '🔊 Sonido'}
           </button>
 
-          {/* Intervalo */}
           <select
             className="input input--short"
             value={interval}
@@ -267,14 +184,10 @@ export default function Chinofarmers({ onViewStocks }) {
                     {user.username}
                   </td>
                   <td style={{ fontSize: 12, color: '#9ca3af' }}>
-                    {user.last_seen
-                      ? new Date(user.last_seen).toLocaleString('es-ES')
-                      : '—'}
+                    {user.last_seen ? new Date(user.last_seen).toLocaleString('es-ES') : '—'}
                   </td>
                   <td style={{ fontSize: 12, color: '#9ca3af' }}>
-                    {user.last_checked
-                      ? new Date(user.last_checked).toLocaleString('es-ES')
-                      : '—'}
+                    {user.last_checked ? new Date(user.last_checked).toLocaleString('es-ES') : '—'}
                   </td>
                   <td style={{ textAlign: 'center' }}>
                     <label className="switch">
@@ -286,15 +199,12 @@ export default function Chinofarmers({ onViewStocks }) {
                       <span className="switch-thumb" />
                     </label>
                   </td>
-                  {/* ── Botón Escanear Stock ── */}
                   <td style={{ textAlign: 'center' }}>
                     <button
                       className="btn btn--ghost btn--sm"
                       style={{
-                        color:      'var(--accent)',
-                        border:     '1px solid var(--accent)',
-                        opacity:    0.85,
-                        transition: 'opacity 0.15s',
+                        color: 'var(--accent)', border: '1px solid var(--accent)',
+                        opacity: 0.85, transition: 'opacity 0.15s',
                       }}
                       title={`Ver stock de gemas de ${user.username}`}
                       onClick={() => onViewStocks?.(user)}

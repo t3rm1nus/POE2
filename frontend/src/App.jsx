@@ -7,6 +7,9 @@ import Stocks       from './pages/Stocks'
 import Dinerete     from './pages/Dinerete'
 import { LeagueProvider, REALMS, LEAGUES, useLeague } from './LeagueContext'
 import { MonitorProvider } from './MonitorContext'
+import { TrackerProvider } from './TrackerContext'
+import { ChinofarmersProvider } from './ChinofarmersContext.jsx'
+
 import './App.css'
 
 const NAV = [
@@ -133,9 +136,13 @@ function AppShell() {
 export default function App() {
   return (
     <LeagueProvider>
-      <MonitorProvider>
-        <AppShell />
-      </MonitorProvider>
+      <ChinofarmersProvider>
+        <MonitorProvider>
+          <TrackerProvider>
+            <AppShell />
+          </TrackerProvider>
+        </MonitorProvider>
+      </ChinofarmersProvider>
     </LeagueProvider>
   )
 }
